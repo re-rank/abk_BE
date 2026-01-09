@@ -14,11 +14,11 @@ async function bootstrap() {
   });
 
   // CORS 설정
-  const allowedOrigins = [
+  const allowedOrigins: string[] = [
     'http://localhost:5173',
     'https://abk-fn.vercel.app',
     process.env.FRONTEND_URL,
-  ].filter(Boolean);
+  ].filter((origin): origin is string => Boolean(origin));
 
   app.enableCors({
     origin: allowedOrigins,
