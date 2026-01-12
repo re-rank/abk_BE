@@ -644,24 +644,26 @@ URL을 확인해주세요: ${apiUrl}
 
     try {
       if (connection.platform === MediaPlatform.NAVER_BLOG) {
-        // 네이버 블로그 쿠키 테스트
+        // 네이버 블로그 쿠키 테스트 - 리다이렉트 따라가기
         const response = await fetch('https://blog.naver.com/MyBlog.naver', {
           method: 'GET',
           headers: {
             'Cookie': cookies,
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           },
-          redirect: 'manual', // 리다이렉트 수동 처리
+          redirect: 'follow', // 리다이렉트 따라가기
         });
 
+        // 최종 URL 확인
+        const finalUrl = response.url || '';
+
         // 로그인 페이지로 리다이렉트되면 쿠키 만료
-        const location = response.headers.get('location') || '';
-        if (response.status === 302 && (location.includes('nidlogin') || location.includes('login'))) {
+        if (finalUrl.includes('nidlogin') || finalUrl.includes('nid.naver.com')) {
           return { success: false, message: '쿠키가 만료되었습니다. 다시 로그인해주세요.' };
         }
 
-        // 200 응답이면 로그인 성공
-        if (response.status === 200) {
+        // 200 응답이고 블로그 페이지면 성공
+        if (response.status === 200 && finalUrl.includes('blog.naver.com')) {
           return {
             success: true,
             message: '네이버 블로그 연동이 정상입니다.',
@@ -674,24 +676,26 @@ URL을 확인해주세요: ${apiUrl}
 
         return { success: false, message: `연동 테스트 실패 (상태 코드: ${response.status})` };
       } else if (connection.platform === MediaPlatform.TISTORY) {
-        // 티스토리 쿠키 테스트
+        // 티스토리 쿠키 테스트 - 리다이렉트 따라가기
         const response = await fetch('https://www.tistory.com/manage', {
           method: 'GET',
           headers: {
             'Cookie': cookies,
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           },
-          redirect: 'manual',
+          redirect: 'follow', // 리다이렉트 따라가기
         });
 
+        // 최종 URL 확인
+        const finalUrl = response.url || '';
+
         // 로그인 페이지로 리다이렉트되면 쿠키 만료
-        const location = response.headers.get('location') || '';
-        if (response.status === 302 && location.includes('login')) {
+        if (finalUrl.includes('login') || finalUrl.includes('auth')) {
           return { success: false, message: '쿠키가 만료되었습니다. 다시 로그인해주세요.' };
         }
 
-        // 200 응답이면 로그인 성공
-        if (response.status === 200) {
+        // 200 응답이고 티스토리 페이지면 성공
+        if (response.status === 200 && finalUrl.includes('tistory.com')) {
           return {
             success: true,
             message: '티스토리 연동이 정상입니다.',
