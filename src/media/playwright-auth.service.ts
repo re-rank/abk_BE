@@ -31,14 +31,17 @@ export class PlaywrightAuthService {
    */
   private async getBrowser(): Promise<Browser> {
     if (!this.browser || !this.browser.isConnected()) {
-      // Playwright 브라우저 경로 설정 (Docker 환경 지원)
-      const browserPath = process.env.PLAYWRIGHT_BROWSERS_PATH
-        ? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium-1200/chrome-linux64/chrome`
-        : undefined;
+      // Playwright 브라우저 경로 설정 (Docker/Cloudtype 환경 지원)
+      const playwrightPath = process.env.PLAYWRIGHT_BROWSERS_PATH || '/app/.cache/ms-playwright';
+      const browserPath = `${playwrightPath}/chromium-1200/chrome-linux64/chrome`;
+
+      // 브라우저 경로가 존재하는지 확인
+      const fs = require('fs');
+      const execPath = fs.existsSync(browserPath) ? browserPath : undefined;
 
       this.browser = await chromium.launch({
         headless: true, // 서버 환경
-        executablePath: browserPath,
+        executablePath: execPath,
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
       });
     }

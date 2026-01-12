@@ -1,6 +1,6 @@
 {
   "name": "abk-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "engines": {
     "node": ">=18.0.0"
   },
@@ -9,7 +9,7 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "postinstall": "npx playwright install chromium --with-deps || true",
+    "postinstall": "PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright npx playwright install chromium --with-deps || true",
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
