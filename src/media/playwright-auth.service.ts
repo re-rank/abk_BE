@@ -101,6 +101,44 @@ export class PlaywrightAuthService {
   }
 
   /**
+   * 쿠키 문자열을 Playwright 쿠키 배열로 변환
+   * - JSON 배열 형식: [{"name": "...", "value": "..."}]
+   * - 문자열 형식: key=value; key=value
+   */
+  private parseCookieString(
+    cookies: string,
+    domain: string,
+  ): Array<{ name: string; value: string; domain: string; path: string }> {
+    const trimmed = cookies.trim();
+
+    // JSON 배열 형식인지 확인
+    if (trimmed.startsWith('[')) {
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+        this.logger.warn('쿠키 JSON 파싱 실패, 문자열 형식으로 시도');
+      }
+    }
+
+    // key=value; key=value 문자열 형식을 Playwright 쿠키 배열로 변환
+    return trimmed
+      .split(';')
+      .map(pair => pair.trim())
+      .filter(pair => pair.includes('='))
+      .map(pair => {
+        const equalIndex = pair.indexOf('=');
+        const name = pair.substring(0, equalIndex).trim();
+        const value = pair.substring(equalIndex + 1).trim();
+        return {
+          name,
+          value,
+          domain,
+          path: '/',
+        };
+      });
+  }
+
+  /**
    * 네이버 로그인 수행 (재사용 가능한 헬퍼 메서드)
    * - 이미 로그인 페이지에 있는 Page 객체에서 로그인 수행
    */
@@ -1136,8 +1174,9 @@ export class PlaywrightAuthService {
     });
 
     try {
-      // 쿠키 복원
-      const cookieArray = JSON.parse(cookies);
+      // 쿠키 복원 - 문자열 형식과 JSON 배열 형식 모두 지원
+      const cookieArray = this.parseCookieString(cookies, '.naver.com');
+      this.logger.log(`쿠키 파싱 완료: ${cookieArray.length}개 쿠키`);
       await context.addCookies(cookieArray);
 
       let page = await context.newPage();
@@ -2381,8 +2420,8 @@ export class PlaywrightAuthService {
     });
 
     try {
-      // 쿠키 복원
-      const cookieArray = JSON.parse(cookies);
+      // 쿠키 복원 - 문자열 형식과 JSON 배열 형식 모두 지원
+      const cookieArray = this.parseCookieString(cookies, '.naver.com');
       await context.addCookies(cookieArray);
 
       const page = await context.newPage();
