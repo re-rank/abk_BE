@@ -16,7 +16,7 @@ COPY . .
 RUN npm run build
 
 # Production stage - Playwright 이미지 사용
-FROM mcr.microsoft.com/playwright:v1.40.1-jammy
+FROM mcr.microsoft.com/playwright:v1.57.0-jammy
 
 WORKDIR /app
 
