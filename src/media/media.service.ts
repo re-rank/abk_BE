@@ -829,6 +829,11 @@ URL을 확인해주세요: ${apiUrl}
         connection.lastCheckedAt = new Date();
         connection.lastError = undefined;
 
+        // 쿠키 직접 입력 시 username/password 초기화
+        // (이전에 저장된 틀린 비밀번호로 재로그인 시도 방지)
+        connection.username = undefined;
+        connection.password = undefined;
+
         if (accountInfo) {
           connection.accountName = accountInfo.name;
           connection.accountUrl = accountInfo.url;
