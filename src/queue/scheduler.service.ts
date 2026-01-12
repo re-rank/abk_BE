@@ -20,7 +20,8 @@ type PublishPlatformType = typeof PUBLISH_PLATFORMS[number];
 @Injectable()
 export class SchedulerService {
   private readonly logger = new Logger(SchedulerService.name);
-  private qstashClient: Client;
+  private qstashClient: Client | null = null;
+  private useQStash = false;
 
   constructor(
     private queueService: QueueService,
@@ -39,11 +40,14 @@ export class SchedulerService {
   ) {
     // QStash 클라이언트 초기화
     const qstashToken = this.configService.get<string>('QSTASH_TOKEN');
-    if (qstashToken) {
+    const appUrl = this.configService.get<string>('APP_URL') || '';
+    const isLocalUrl = appUrl.includes('localhost') || appUrl.includes('127.0.0.1');
+    if (qstashToken && !isLocalUrl) {
       this.qstashClient = new Client({ token: qstashToken });
+      this.useQStash = true;
       this.logger.log('QStash client initialized');
     } else {
-      this.logger.warn('QStash token not found, using local scheduling only');
+      this.logger.warn('Using BullMQ for local scheduling (QStash requires public URL)');
     }
   }
 
@@ -214,7 +218,7 @@ export class SchedulerService {
     }
 
     // QStash를 사용한 스케줄링 (서버리스 환경에 최적)
-    if (this.qstashClient) {
+    if (this.useQStash && this.qstashClient) {
       try {
         const baseUrl = this.configService.get<string>('APP_URL');
         if (!baseUrl) {
@@ -256,7 +260,7 @@ export class SchedulerService {
     const scheduleTime = new Date(Date.now() + delay);
 
     // QStash를 사용한 스케줄링
-    if (this.qstashClient) {
+    if (this.useQStash && this.qstashClient) {
       try {
         const baseUrl = this.configService.get<string>('APP_URL');
         if (!baseUrl) {
