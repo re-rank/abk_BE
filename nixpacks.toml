@@ -1,0 +1,49 @@
+# Nixpacks 빌드 설정 - Playwright Chromium 지원
+
+[phases.setup]
+nixPkgs = [
+  # Chromium 실행에 필요한 시스템 라이브러리
+  "nss",
+  "nspr",
+  "atk",
+  "cups",
+  "libdrm",
+  "dbus",
+  "libxkbcommon",
+  "at-spi2-atk",
+  "at-spi2-core",
+  "pango",
+  "cairo",
+  "alsa-lib",
+  "mesa",
+  "expat",
+  "glib",
+  "gtk3",
+  "libX11",
+  "libXcomposite",
+  "libXdamage",
+  "libXext",
+  "libXfixes",
+  "libXrandr",
+  "libxcb",
+  "freetype",
+  "fontconfig",
+  "gdk-pixbuf",
+  "harfbuzz"
+]
+
+[phases.install]
+cmds = [
+  "npm ci",
+  "PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright npx playwright install chromium"
+]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm run start:prod"
+
+[variables]
+PLAYWRIGHT_BROWSERS_PATH = "/app/.cache/ms-playwright"
+NODE_ENV = "production"
