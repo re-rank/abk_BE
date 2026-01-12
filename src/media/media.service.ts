@@ -676,26 +676,33 @@ URL을 확인해주세요: ${apiUrl}
 
         return { success: false, message: `연동 테스트 실패 (상태 코드: ${response.status})` };
       } else if (connection.platform === MediaPlatform.TISTORY) {
-        // 티스토리 쿠키 테스트 - 리다이렉트 따라가기
-        const response = await fetch('https://www.tistory.com/manage', {
+        // 티스토리 쿠키 테스트 - 블로그 URL이 있으면 해당 블로그 테스트
+        let testUrl = 'https://www.tistory.com/';
+
+        // 저장된 블로그 URL이 있으면 해당 블로그의 관리 페이지 사용
+        if (connection.accountUrl) {
+          const blogUrl = connection.accountUrl.replace(/\/$/, '');
+          testUrl = `${blogUrl}/manage/posts`;
+        }
+
+        const response = await fetch(testUrl, {
           method: 'GET',
           headers: {
             'Cookie': cookies,
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           },
-          redirect: 'follow', // 리다이렉트 따라가기
+          redirect: 'follow',
         });
 
-        // 최종 URL 확인
         const finalUrl = response.url || '';
 
         // 로그인 페이지로 리다이렉트되면 쿠키 만료
-        if (finalUrl.includes('login') || finalUrl.includes('auth')) {
+        if (finalUrl.includes('login') || finalUrl.includes('auth') || finalUrl.includes('accounts.kakao')) {
           return { success: false, message: '쿠키가 만료되었습니다. 다시 로그인해주세요.' };
         }
 
         // 200 응답이고 티스토리 페이지면 성공
-        if (response.status === 200 && finalUrl.includes('tistory.com')) {
+        if (response.status === 200 && finalUrl.includes('tistory.com') && !finalUrl.includes('login')) {
           return {
             success: true,
             message: '티스토리 연동이 정상입니다.',
@@ -704,6 +711,30 @@ URL을 확인해주세요: ${apiUrl}
               url: connection.accountUrl,
             } : undefined,
           };
+        }
+
+        // 404인 경우 메인 페이지로 재시도
+        if (response.status === 404) {
+          const mainResponse = await fetch('https://www.tistory.com/', {
+            method: 'GET',
+            headers: {
+              'Cookie': cookies,
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            },
+            redirect: 'follow',
+          });
+
+          const mainFinalUrl = mainResponse.url || '';
+          if (mainResponse.status === 200 && !mainFinalUrl.includes('login') && !mainFinalUrl.includes('auth')) {
+            return {
+              success: true,
+              message: '티스토리 연동이 정상입니다.',
+              accountInfo: connection.accountName ? {
+                name: connection.accountName,
+                url: connection.accountUrl,
+              } : undefined,
+            };
+          }
         }
 
         return { success: false, message: `연동 테스트 실패 (상태 코드: ${response.status})` };
