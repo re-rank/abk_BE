@@ -2009,15 +2009,19 @@ export class PlaywrightAuthService {
       // 로그인 페이지로 리다이렉트된 경우 - 재로그인 필요
       if (currentUrl.includes('auth/login') || currentUrl.includes('kakao') || currentUrl.includes('accounts.kakao')) {
         this.logger.warn('로그인 페이지로 리다이렉트됨, 재로그인 시도...');
-        
-        if (!username || !password) {
+
+        // 유효한 카카오 계정(이메일 형식)인지 확인
+        const isValidEmail = username && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username);
+
+        if (!isValidEmail || !password) {
           await context.close();
+          await browser?.close();
           return {
             success: false,
             error: '쿠키가 만료되었습니다. 프로젝트 설정 → 매체 연동에서 쿠키를 새로 입력해주세요.',
           };
         }
-        
+
         const reAuthResult = await this.performTistoryLogin(page, username, password);
         if (!reAuthResult.success) {
           await context.close();
