@@ -61,26 +61,42 @@ export class BrowserlessService {
       // 고유 세션 ID 생성
       const sessionId = `abk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      // Browserless.io WebSocket 엔드포인트 (Browserless 2.x는 trackingId 지원 안함)
-      const browserlessUrl = `wss://chrome.browserless.io?token=${apiKey}&--window-size=1280,800`;
+      // Browserless.io WebSocket 엔드포인트 (live=true로 liveURL 활성화)
+      const launchOptions = JSON.stringify({
+        stealth: true,
+        args: ['--window-size=1280,800'],
+      });
+      const browserlessUrl = `wss://chrome.browserless.io?token=${apiKey}&launch=${encodeURIComponent(launchOptions)}&timeout=600000`;
 
       this.logger.log(`Browserless.io에 연결 중... (platform: ${platform}, sessionId: ${sessionId})`);
 
       // Playwright로 Browserless.io에 연결
       const browser = await chromium.connectOverCDP(browserlessUrl, {
-        timeout: 30000,
+        timeout: 60000,
       });
 
-      // 새 컨텍스트 생성
-      const context = await browser.newContext({
-        viewport: { width: 1280, height: 800 },
-        locale: 'ko-KR',
-        timezoneId: 'Asia/Seoul',
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      });
+      // 기본 컨텍스트 사용 (Browserless에서 이미 생성됨)
+      const contexts = browser.contexts();
+      let context: BrowserContext;
 
-      // 새 페이지 생성
-      const page = await context.newPage();
+      if (contexts.length > 0) {
+        context = contexts[0];
+      } else {
+        context = await browser.newContext({
+          viewport: { width: 1280, height: 800 },
+          locale: 'ko-KR',
+          timezoneId: 'Asia/Seoul',
+        });
+      }
+
+      // 페이지 가져오기 또는 생성
+      let page: Page;
+      const pages = context.pages();
+      if (pages.length > 0) {
+        page = pages[0];
+      } else {
+        page = await context.newPage();
+      }
 
       // CDP 세션 생성하여 Browserless.liveURL 호출
       const cdpSession = await context.newCDPSession(page);
@@ -95,12 +111,27 @@ export class BrowserlessService {
         this.logger.log(`LiveURL 가져오기 응답: ${JSON.stringify(liveUrlResponse)}`);
       } catch (liveUrlError) {
         this.logger.warn(`LiveURL 가져오기 실패: ${liveUrlError.message}`);
+
+        // Browserless.reconnect 시도
+        try {
+          const reconnectResponse = await cdpSession.send('Browserless.reconnect' as any, {
+            timeout: 600000,
+          });
+          liveViewUrl = (reconnectResponse as any).liveURL || (reconnectResponse as any).browserWSEndpoint || '';
+          this.logger.log(`Reconnect 응답: ${JSON.stringify(reconnectResponse)}`);
+        } catch (reconnectError) {
+          this.logger.warn(`Reconnect 실패: ${reconnectError.message}`);
+        }
       }
 
-      // liveURL이 비어있으면 대체 URL 사용
+      // liveURL이 여전히 비어있으면 오류 반환 (fallback URL은 세션과 연결되지 않음)
       if (!liveViewUrl) {
-        this.logger.warn('LiveURL이 비어있음, 대체 URL 사용');
-        liveViewUrl = `https://chrome.browserless.io/live?token=${apiKey}`;
+        this.logger.error('LiveURL을 가져올 수 없음 - Browserless.io Free tier 제한일 수 있음');
+        await browser.close();
+        return {
+          success: false,
+          message: 'Browserless.io에서 라이브 뷰 URL을 가져올 수 없습니다. 쿠키 직접 입력 방식을 사용해주세요.',
+        };
       }
 
       this.logger.log(`최종 liveViewUrl: ${liveViewUrl}`);
