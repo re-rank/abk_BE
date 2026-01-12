@@ -1,0 +1,22 @@
+[phases.setup]
+nixPkgs = [
+  "chromium",
+  "nss",
+  "freetype",
+  "harfbuzz",
+  "ca-certificates",
+  "ttf-freefont"
+]
+
+[phases.install]
+cmds = ["npm ci", "npx playwright install chromium"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm run start:prod"
+
+[variables]
+PLAYWRIGHT_BROWSERS_PATH = "/app/.cache/ms-playwright"
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "0"

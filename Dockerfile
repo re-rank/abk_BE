@@ -46,6 +46,9 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
+# Set Playwright browsers path
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
+
 # Install production dependencies only
 RUN npm ci --only=production
 
