@@ -110,12 +110,12 @@ export class MediaController {
     },
   })
   async saveDirectCookies(
+    @CurrentUser() user: AuthUser,
     @Body('projectId') projectId: string,
     @Body('platform') platform: 'tistory' | 'naver',
     @Body('cookies') cookies: string,
     @Body('blogName') blogName?: string,
     @Body('blogUrl') blogUrl?: string,
-    @CurrentUser() user: AuthUser,
   ): Promise<{
     success: boolean;
     message: string;
