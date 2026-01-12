@@ -47,19 +47,20 @@ import { AnalyticsModule } from './analytics/analytics.module';
         }
 
         console.log('🔗 Attempting to connect to Supabase PostgreSQL...');
+        const isProduction = configService.get('NODE_ENV') === 'production';
         return {
           type: 'postgres',
           url: dbUrl,
           autoLoadEntities: true,
-          synchronize: configService.get('NODE_ENV') !== 'production',
+          synchronize: false, // 항상 false - 마이그레이션 사용 권장
           ssl: {
-            rejectUnauthorized: false,
+            rejectUnauthorized: true, // SSL 인증서 검증 활성화 (MITM 공격 방지)
           },
-          retryAttempts: 1,
-          retryDelay: 1000,
-          // IPv6 지원 추가
+          retryAttempts: isProduction ? 5 : 1, // 프로덕션에서 재시도 증가
+          retryDelay: 3000,
           extra: {
-            connectionTimeoutMillis: 5000,
+            connectionTimeoutMillis: 10000,
+            max: 20, // 최대 연결 풀 크기
           },
         };
       },

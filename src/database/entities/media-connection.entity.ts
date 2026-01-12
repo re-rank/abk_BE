@@ -9,6 +9,7 @@ import {
   Index,
 } from 'typeorm';
 import { Project } from './project.entity';
+import { EncryptionTransformer } from '../../common/utils/encryption.util';
 
 export enum MediaPlatform {
   WORDPRESS = 'WORDPRESS',
@@ -74,21 +75,21 @@ export class MediaConnection {
   @Column({ nullable: true })
   username?: string; // WordPress username, Naver ID, etc.
 
-  @Column({ nullable: true })
-  password?: string; // WordPress App Password (암호화 저장)
+  @Column({ nullable: true, transformer: EncryptionTransformer })
+  password?: string; // WordPress App Password (AES-256-GCM 암호화)
 
   // OAuth 클라이언트 정보 (LinkedIn, X)
   @Column({ nullable: true })
   clientId?: string; // OAuth Client ID (LinkedIn, X)
 
-  @Column({ nullable: true })
-  clientSecret?: string; // OAuth Client Secret (LinkedIn, X)
+  @Column({ nullable: true, transformer: EncryptionTransformer })
+  clientSecret?: string; // OAuth Client Secret (AES-256-GCM 암호화)
 
-  @Column({ nullable: true })
-  accessToken?: string; // OAuth access token
+  @Column({ nullable: true, transformer: EncryptionTransformer })
+  accessToken?: string; // OAuth access token (AES-256-GCM 암호화)
 
-  @Column({ nullable: true })
-  refreshToken?: string; // OAuth refresh token
+  @Column({ nullable: true, transformer: EncryptionTransformer })
+  refreshToken?: string; // OAuth refresh token (AES-256-GCM 암호화)
 
   @Column({ type: 'timestamp', nullable: true })
   tokenExpiresAt?: Date;
