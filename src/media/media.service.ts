@@ -579,6 +579,8 @@ URL을 확인해주세요: ${apiUrl}
 
   /**
    * Playwright 기반 연동 테스트 (네이버 블로그, 티스토리)
+   * - 쿠키가 있으면 HTTP 요청으로 쿠키 유효성 검사 (가볍고 안정적)
+   * - 쿠키가 없고 username/password가 있으면 Playwright로 로그인 테스트
    */
   private async testPlaywrightConnection(
     connection: MediaConnection,
@@ -587,8 +589,14 @@ URL을 확인해주세요: ${apiUrl}
     message: string;
     accountInfo?: { name: string; url?: string };
   }> {
+    // 쿠키가 있으면 HTTP 요청으로 쿠키 유효성 검사 (Playwright 없이)
+    if (connection.accessToken) {
+      return this.testConnectionWithCookies(connection);
+    }
+
+    // 쿠키가 없으면 username/password 필요
     if (!connection.username || !connection.password) {
-      return { success: false, message: '아이디와 비밀번호가 필요합니다.' };
+      return { success: false, message: '쿠키 또는 아이디/비밀번호가 필요합니다. 수동 로그인을 진행해주세요.' };
     }
 
     try {
@@ -615,6 +623,93 @@ URL을 확인해주세요: ${apiUrl}
       return {
         success: false,
         message: `연동 테스트 실패: ${error.message}`,
+      };
+    }
+  }
+
+  /**
+   * 쿠키로 연동 테스트 (HTTP 요청 기반, Playwright 없이)
+   */
+  private async testConnectionWithCookies(
+    connection: MediaConnection,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    accountInfo?: { name: string; url?: string };
+  }> {
+    const cookies = connection.accessToken;
+    if (!cookies) {
+      return { success: false, message: '쿠키가 없습니다.' };
+    }
+
+    try {
+      if (connection.platform === MediaPlatform.NAVER_BLOG) {
+        // 네이버 블로그 쿠키 테스트
+        const response = await fetch('https://blog.naver.com/MyBlog.naver', {
+          method: 'GET',
+          headers: {
+            'Cookie': cookies,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          },
+          redirect: 'manual', // 리다이렉트 수동 처리
+        });
+
+        // 로그인 페이지로 리다이렉트되면 쿠키 만료
+        const location = response.headers.get('location') || '';
+        if (response.status === 302 && (location.includes('nidlogin') || location.includes('login'))) {
+          return { success: false, message: '쿠키가 만료되었습니다. 다시 로그인해주세요.' };
+        }
+
+        // 200 응답이면 로그인 성공
+        if (response.status === 200) {
+          return {
+            success: true,
+            message: '네이버 블로그 연동이 정상입니다.',
+            accountInfo: connection.accountName ? {
+              name: connection.accountName,
+              url: connection.accountUrl,
+            } : undefined,
+          };
+        }
+
+        return { success: false, message: `연동 테스트 실패 (상태 코드: ${response.status})` };
+      } else if (connection.platform === MediaPlatform.TISTORY) {
+        // 티스토리 쿠키 테스트
+        const response = await fetch('https://www.tistory.com/manage', {
+          method: 'GET',
+          headers: {
+            'Cookie': cookies,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          },
+          redirect: 'manual',
+        });
+
+        // 로그인 페이지로 리다이렉트되면 쿠키 만료
+        const location = response.headers.get('location') || '';
+        if (response.status === 302 && location.includes('login')) {
+          return { success: false, message: '쿠키가 만료되었습니다. 다시 로그인해주세요.' };
+        }
+
+        // 200 응답이면 로그인 성공
+        if (response.status === 200) {
+          return {
+            success: true,
+            message: '티스토리 연동이 정상입니다.',
+            accountInfo: connection.accountName ? {
+              name: connection.accountName,
+              url: connection.accountUrl,
+            } : undefined,
+          };
+        }
+
+        return { success: false, message: `연동 테스트 실패 (상태 코드: ${response.status})` };
+      }
+
+      return { success: false, message: '지원하지 않는 플랫폼입니다.' };
+    } catch (error) {
+      return {
+        success: false,
+        message: `연동 테스트 중 오류: ${error.message}`,
       };
     }
   }
