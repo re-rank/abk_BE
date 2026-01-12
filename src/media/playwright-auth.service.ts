@@ -1372,7 +1372,32 @@ export class PlaywrightAuthService {
         this.logger.log('임시저장 팝업 없음 (정상)');
       }
       
-      // 2. 도움말 팝업이나 기타 팝업 닫기
+      // 2. 확인 팝업 (se-popup-alert-confirm) 처리
+      try {
+        // 확인/닫기 버튼 찾기
+        const confirmBtnSelectors = [
+          '.se-popup-alert-confirm button:has-text("확인")',
+          '.se-popup-alert-confirm button:has-text("닫기")',
+          '.se-popup-alert button:has-text("확인")',
+          '.se-popup-alert button:has-text("닫기")',
+          '.se-popup-button-confirm',
+          '.se-popup-close',
+        ];
+
+        for (const selector of confirmBtnSelectors) {
+          const confirmBtn = iframeLocator.locator(selector).first();
+          if (await confirmBtn.isVisible({ timeout: 1000 })) {
+            await confirmBtn.click();
+            this.logger.log(`확인 팝업 닫음: ${selector}`);
+            await page.waitForTimeout(1000);
+            break;
+          }
+        }
+      } catch {
+        // 무시
+      }
+
+      // 3. 도움말 팝업이나 기타 팝업 닫기
       try {
         const closeBtn = iframeLocator.locator('.se-help-close, button[aria-label="닫기"], [class*="close"]').first();
         if (await closeBtn.isVisible({ timeout: 1000 })) {
@@ -1383,7 +1408,16 @@ export class PlaywrightAuthService {
       } catch {
         // 무시
       }
-      
+
+      // 4. se-popup-dim (팝업 오버레이) 강제 제거
+      try {
+        await iframeLocator.locator('.se-popup-dim').evaluate((el: Element) => el.remove()).catch(() => {});
+        await iframeLocator.locator('.se-popup-alert').evaluate((el: Element) => el.remove()).catch(() => {});
+        this.logger.log('팝업 오버레이 제거 시도');
+      } catch {
+        // 무시
+      }
+
       // ESC 키로 남은 팝업 모두 닫기
       await page.keyboard.press('Escape');
       await page.waitForTimeout(500);
@@ -1418,11 +1452,12 @@ export class PlaywrightAuthService {
           'article.se-title p',
           '.se-component.se-title .se-text-paragraph',
         ];
-        
+
         let titleClicked = false;
         for (const selector of titleSelectors) {
           try {
-            const titleEl = await frame.$(selector);
+            // 타임아웃 5초로 대기
+            const titleEl = await frame.waitForSelector(selector, { timeout: 5000 }).catch(() => null);
             if (titleEl) {
               await titleEl.click();
               titleClicked = true;
@@ -1433,13 +1468,16 @@ export class PlaywrightAuthService {
             continue;
           }
         }
-        
+
         if (!titleClicked) {
+          this.logger.log('제목 셀렉터 실패, article p 시도...');
           // 대안: 첫 번째 p 태그 클릭
-          const firstP = await frame.$('article p');
+          const firstP = await frame.waitForSelector('article p', { timeout: 5000 }).catch(() => null);
           if (firstP) {
             await firstP.click();
             this.logger.log('제목 영역 클릭 성공 (article p)');
+          } else {
+            this.logger.warn('제목 영역을 찾지 못함 - 키보드로 직접 입력 시도');
           }
         }
       } catch (e) {
