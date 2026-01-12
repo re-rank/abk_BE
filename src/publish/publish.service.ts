@@ -167,10 +167,19 @@ export class PublishService {
         return publishLog;
       }
 
-      this.logger.log(`티스토리 발행 시작: ${content.title}`);
+      // 블로그 URL 확인 (accountUrl 또는 apiUrl 사용)
+      const blogUrl = tistoryConnection.accountUrl || tistoryConnection.apiUrl || '';
+      if (!blogUrl) {
+        publishLog.status = PublishStatus.FAILED;
+        publishLog.errorMessage = '티스토리 블로그 URL이 필요합니다. 매체 연동에서 블로그 URL(예: https://myblog.tistory.com)을 확인해주세요.';
+        await this.publishLogRepository.save(publishLog);
+        return publishLog;
+      }
+
+      this.logger.log(`티스토리 발행 시작: ${content.title}, 블로그: ${blogUrl}`);
       result = await this.playwrightAuthService.publishToTistory(
         tistoryConnection.accessToken,
-        tistoryConnection.accountUrl || '',
+        blogUrl,
         tistoryConnection.username,
         tistoryConnection.password,
         content.title,

@@ -184,6 +184,11 @@ export class MediaService {
       connection.refreshToken = accessTokenSecret;
     }
 
+    // 티스토리의 경우 apiUrl을 accountUrl로도 저장 (발행 시 사용)
+    if (platform === MediaPlatform.TISTORY && apiUrl) {
+      connection.accountUrl = apiUrl;
+    }
+
     return this.mediaConnectionRepository.save(connection);
   }
 
