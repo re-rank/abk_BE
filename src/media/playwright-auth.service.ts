@@ -2216,8 +2216,40 @@ export class PlaywrightAuthService {
 
       // === 본문 입력 ===
       this.logger.log('본문 입력 중...');
-      
+
       let contentEntered = false;
+
+      // Plain text를 HTML로 변환 (줄바꿈 처리)
+      const convertToHtml = (text: string): string => {
+        // 이미 HTML 태그가 많이 포함되어 있으면 그대로 반환
+        if (/<(p|div|h[1-6]|ul|ol|li)[^>]*>/i.test(text)) {
+          return text;
+        }
+
+        // 1. HTML 특수문자 이스케이프 (기존 <a> 태그 보존)
+        const preserveLinks = text.replace(/<a\s+href="([^"]+)"[^>]*>([^<]+)<\/a>/gi, '___LINK_START___$1___LINK_SEP___$2___LINK_END___');
+
+        // 2. 단락 구분: \n\n을 </p><p>로 변환
+        const paragraphs = preserveLinks.split(/\n\n+/);
+
+        // 3. 각 단락 내 줄바꿈: \n을 <br>로 변환
+        const htmlParagraphs = paragraphs
+          .map(p => p.trim())
+          .filter(p => p.length > 0)
+          .map(p => {
+            const withBr = p.replace(/\n/g, '<br>');
+            return `<p>${withBr}</p>`;
+          });
+
+        // 4. 링크 복원
+        let result = htmlParagraphs.join('\n');
+        result = result.replace(/___LINK_START___([^_]+)___LINK_SEP___([^_]+)___LINK_END___/g, '<a href="$1">$2</a>');
+
+        return result;
+      };
+
+      const htmlContent = convertToHtml(content);
+      this.logger.log(`HTML 변환 완료 (원본 길이: ${content.length}, HTML 길이: ${htmlContent.length})`);
 
       // 티스토리는 iframe 기반 에디터 사용 (TinyMCE)
       // TinyMCE는 HTML을 지원하므로 직접 HTML 삽입
@@ -2232,18 +2264,18 @@ export class PlaywrightAuthService {
             if (editorBody) {
               await editorBody.click();
               await page.waitForTimeout(500);
-              
+
               // HTML을 에디터에 직접 삽입
-              await frame.evaluate((htmlContent) => {
+              await frame.evaluate((html) => {
                 const body = document.body;
                 if (body) {
                   // 기존 내용 지우기
                   body.innerHTML = '';
                   // HTML 삽입
-                  body.innerHTML = htmlContent;
+                  body.innerHTML = html;
                 }
-              }, content);
-              
+              }, htmlContent);
+
               contentEntered = true;
               this.logger.log('본문 입력 성공: HTML 직접 삽입');
             }
