@@ -1863,8 +1863,8 @@ export class PlaywrightAuthService {
   async publishToTistory(
     cookies: string,
     blogUrl: string,
-    username: string, // 재로그인을 위한 카카오 계정 정보
-    password: string,
+    username: string | undefined, // 재로그인을 위한 카카오 계정 정보 (선택)
+    password: string | undefined,
     title: string,
     content: string,
   ): Promise<{ success: boolean; postId?: string; postUrl?: string; error?: string; newCookies?: string }> {
@@ -2014,7 +2014,7 @@ export class PlaywrightAuthService {
           await context.close();
           return {
             success: false,
-            error: '세션이 만료되었습니다. 매체 연동을 다시 테스트해주세요.',
+            error: '쿠키가 만료되었습니다. 프로젝트 설정 → 매체 연동에서 쿠키를 새로 입력해주세요.',
           };
         }
         

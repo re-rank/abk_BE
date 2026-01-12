@@ -160,7 +160,7 @@ export class PublishService {
         },
       });
 
-      if (!tistoryConnection || !tistoryConnection.accessToken || !tistoryConnection.username || !tistoryConnection.password) {
+      if (!tistoryConnection || !tistoryConnection.accessToken) {
         publishLog.status = PublishStatus.FAILED;
         publishLog.errorMessage = '이 프로젝트의 티스토리 연동이 완료되지 않았습니다. 프로젝트 설정에서 매체를 연동해주세요.';
         await this.publishLogRepository.save(publishLog);

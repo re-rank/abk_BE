@@ -690,8 +690,8 @@ URL을 확인해주세요: ${apiUrl}
         // www.tistory.com은 메인 페이지이므로 무효한 URL로 처리
         if (blogUrl && blogUrl.includes('www.tistory.com')) {
           this.logger.log('잘못된 블로그 URL (www.tistory.com) 감지, 재추출 시도...');
-          blogUrl = null;
-          connection.accountUrl = null;
+          blogUrl = undefined;
+          connection.accountUrl = undefined;
         }
 
         // 블로그 URL이 없으면 자동 추출 시도
