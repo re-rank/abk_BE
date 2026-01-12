@@ -18,6 +18,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { PlaywrightAuthService } from './playwright-auth.service';
+import { BrowserlessService } from './browserless.service';
 import { LinkedinService } from '../sns/linkedin.service';
 import { createClient } from '@supabase/supabase-js';
 import { MediaPlatform } from '../database/entities/media-connection.entity';
@@ -36,6 +37,7 @@ export class MediaController {
   constructor(
     private readonly mediaService: MediaService,
     private readonly playwrightAuthService: PlaywrightAuthService,
+    private readonly browserlessService: BrowserlessService,
     private readonly linkedinService: LinkedinService,
     private readonly configService: ConfigService,
   ) {}
@@ -89,10 +91,85 @@ export class MediaController {
 
   // ========== 수동 로그인 (2차 인증 지원) ==========
 
-  @Post('manual-login/open')
-  @ApiOperation({ 
-    summary: '수동 로그인 브라우저 열기',
-    description: '2차 인증이 필요한 경우, 브라우저에서 직접 로그인할 수 있습니다. 로그인 완료 후 쿠키를 저장하세요.',
+  @Post('manual-login/save-cookies')
+  @ApiOperation({
+    summary: '쿠키 직접 저장 (수동 로그인)',
+    description: '브라우저에서 직접 복사한 쿠키를 저장합니다. 개발자도구 > Application > Cookies에서 복사하세요.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        projectId: { type: 'string', description: '프로젝트 ID' },
+        platform: { type: 'string', enum: ['tistory', 'naver'], description: '플랫폼' },
+        cookies: { type: 'string', description: '쿠키 문자열 (JSON 배열 또는 key=value; 형식)' },
+        blogName: { type: 'string', description: '블로그 이름 (선택)' },
+        blogUrl: { type: 'string', description: '블로그 URL (선택)' },
+      },
+      required: ['projectId', 'platform', 'cookies'],
+    },
+  })
+  async saveDirectCookies(
+    @Body('projectId') projectId: string,
+    @Body('platform') platform: 'tistory' | 'naver',
+    @Body('cookies') cookies: string,
+    @Body('blogName') blogName?: string,
+    @Body('blogUrl') blogUrl?: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    connectionId?: string;
+  }> {
+    // 플랫폼 매핑
+    const platformMap = {
+      tistory: 'TISTORY',
+      naver: 'NAVER_BLOG',
+    };
+
+    // 쿠키 형식 정규화 (JSON 배열이면 문자열로 변환)
+    let normalizedCookies = cookies.trim();
+    try {
+      // JSON 배열 형식인지 확인
+      const parsed = JSON.parse(normalizedCookies);
+      if (Array.isArray(parsed)) {
+        // [{name: 'xxx', value: 'yyy'}, ...] 형식을 'name=value; ...' 형식으로 변환
+        normalizedCookies = parsed
+          .map((c: any) => `${c.name}=${c.value}`)
+          .join('; ');
+      }
+    } catch {
+      // JSON이 아니면 그대로 사용 (이미 key=value; 형식)
+    }
+
+    // 계정 정보
+    const accountInfo = blogName || blogUrl ? {
+      name: blogName || '',
+      url: blogUrl,
+    } : undefined;
+
+    // 쿠키 저장
+    const result = await this.mediaService.updateCookies(
+      projectId,
+      platformMap[platform] as 'TISTORY' | 'NAVER_BLOG',
+      normalizedCookies,
+      accountInfo,
+      user.userId,
+    );
+
+    return {
+      success: result.success,
+      message: result.success
+        ? '쿠키가 저장되었습니다. 연동 테스트를 진행해주세요.'
+        : result.message,
+      connectionId: result.connectionId,
+    };
+  }
+
+  @Post('manual-login/instructions')
+  @ApiOperation({
+    summary: '쿠키 복사 방법 안내',
+    description: '플랫폼별 쿠키 복사 방법을 반환합니다.',
   })
   @ApiBody({
     schema: {
@@ -103,29 +180,83 @@ export class MediaController {
       required: ['platform'],
     },
   })
-  openManualLoginBrowser(
+  getCookieInstructions(
     @Body('platform') platform: 'tistory' | 'naver',
   ) {
-    return this.playwrightAuthService.openManualLoginBrowser(platform);
+    const instructions = {
+      tistory: {
+        loginUrl: 'https://www.tistory.com/auth/login',
+        steps: [
+          '1. 위 URL에서 티스토리에 로그인합니다 (카카오 로그인 포함).',
+          '2. 로그인 후 F12를 눌러 개발자 도구를 엽니다.',
+          '3. Application 탭 > Cookies > https://www.tistory.com 선택',
+          '4. 목록에서 우클릭 > "Copy all as JSON" 또는 필요한 쿠키 복사',
+          '5. 특히 필요한 쿠키: TSSESSION, TSESSION (있는 경우)',
+        ],
+        requiredCookies: ['TSSESSION', 'TSESSION'],
+      },
+      naver: {
+        loginUrl: 'https://nid.naver.com/nidlogin.login',
+        steps: [
+          '1. 위 URL에서 네이버에 로그인합니다 (2차 인증 포함).',
+          '2. 로그인 후 https://blog.naver.com 으로 이동합니다.',
+          '3. F12를 눌러 개발자 도구를 엽니다.',
+          '4. Application 탭 > Cookies > https://blog.naver.com 선택',
+          '5. 목록에서 우클릭 > "Copy all as JSON" 또는 필요한 쿠키 복사',
+          '6. 특히 필요한 쿠키: NID_AUT, NID_SES, NID_JKL',
+        ],
+        requiredCookies: ['NID_AUT', 'NID_SES', 'NID_JKL'],
+      },
+    };
+
+    return instructions[platform];
   }
 
-  @Post('manual-login/save')
-  @ApiOperation({ 
-    summary: '수동 로그인 쿠키 저장',
-    description: '브라우저에서 로그인 완료 후, 쿠키를 저장합니다.',
+  // ==================== Browserless.io 원격 브라우저 ====================
+
+  @Post('remote-browser/start')
+  @ApiOperation({
+    summary: '원격 브라우저 세션 시작',
+    description: 'Browserless.io를 통해 원격 브라우저를 열고 로그인 페이지로 이동합니다.',
   })
   @ApiBody({
     schema: {
       type: 'object',
       properties: {
-        sessionId: { type: 'string', description: '세션 ID (openManualLoginBrowser에서 반환)' },
+        platform: { type: 'string', enum: ['tistory', 'naver'], description: '플랫폼' },
+      },
+      required: ['platform'],
+    },
+  })
+  async startRemoteBrowser(
+    @Body('platform') platform: 'tistory' | 'naver',
+    @CurrentUser() user: AuthUser,
+  ): Promise<{
+    success: boolean;
+    sessionId?: string;
+    liveViewUrl?: string;
+    message: string;
+  }> {
+    return this.browserlessService.startSession(platform);
+  }
+
+  @Post('remote-browser/save-cookies')
+  @ApiOperation({
+    summary: '원격 브라우저에서 쿠키 저장',
+    description: '사용자가 로그인을 완료한 후 쿠키를 저장합니다.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', description: '세션 ID' },
         projectId: { type: 'string', description: '프로젝트 ID' },
         platform: { type: 'string', enum: ['tistory', 'naver'], description: '플랫폼' },
       },
       required: ['sessionId', 'projectId', 'platform'],
     },
   })
-  async saveManualLoginCookies(
+  async saveRemoteBrowserCookies(
     @Body('sessionId') sessionId: string,
     @Body('projectId') projectId: string,
     @Body('platform') platform: 'tistory' | 'naver',
@@ -133,40 +264,47 @@ export class MediaController {
   ): Promise<{
     success: boolean;
     message: string;
-    accountInfo?: { name: string; url?: string; blogId?: string };
-    connectionUpdated?: { success: boolean; message: string; connectionId?: string };
+    connectionId?: string;
   }> {
-    // 쿠키 추출
-    const result = await this.playwrightAuthService.saveManualLoginCookies(sessionId);
-    
-    if (!result.success) {
-      return result;
+    // 1. Browserless에서 쿠키 가져오기
+    const result = await this.browserlessService.saveCookies(sessionId);
+
+    if (!result.success || !result.cookies) {
+      return {
+        success: false,
+        message: result.message,
+      };
     }
 
-    // 매체 연동 정보 저장/업데이트
+    // 2. 플랫폼 매핑
     const platformMap = {
       tistory: 'TISTORY',
       naver: 'NAVER_BLOG',
     };
 
-    const updateResult = await this.mediaService.updateCookies(
+    // 3. DB에 쿠키 저장
+    const saveResult = await this.mediaService.updateCookies(
       projectId,
       platformMap[platform] as 'TISTORY' | 'NAVER_BLOG',
-      result.cookies!,
+      result.cookies,
       result.accountInfo,
       user.userId,
     );
 
     return {
-      success: true,
-      message: result.message,
-      accountInfo: result.accountInfo,
-      connectionUpdated: updateResult,
+      success: saveResult.success,
+      message: saveResult.success
+        ? '로그인 정보가 저장되었습니다.'
+        : saveResult.message,
+      connectionId: saveResult.connectionId,
     };
   }
 
-  @Post('manual-login/cancel')
-  @ApiOperation({ summary: '수동 로그인 취소' })
+  @Post('remote-browser/close')
+  @ApiOperation({
+    summary: '원격 브라우저 세션 종료',
+    description: '원격 브라우저 세션을 종료합니다.',
+  })
   @ApiBody({
     schema: {
       type: 'object',
@@ -176,9 +314,31 @@ export class MediaController {
       required: ['sessionId'],
     },
   })
-  async cancelManualLogin(@Body('sessionId') sessionId: string) {
-    await this.playwrightAuthService.cancelManualLogin(sessionId);
-    return { success: true, message: '수동 로그인이 취소되었습니다.' };
+  async closeRemoteBrowser(
+    @Body('sessionId') sessionId: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<{ success: boolean; message: string }> {
+    await this.browserlessService.closeSession(sessionId);
+    return {
+      success: true,
+      message: '세션이 종료되었습니다.',
+    };
+  }
+
+  @Get('remote-browser/status/:sessionId')
+  @ApiOperation({
+    summary: '원격 브라우저 세션 상태 확인',
+    description: '현재 세션의 상태와 URL을 확인합니다.',
+  })
+  async getRemoteBrowserStatus(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<{
+    active: boolean;
+    url?: string;
+    platform?: string;
+  }> {
+    return this.browserlessService.getSessionStatus(sessionId);
   }
 
   // ==================== LinkedIn OAuth ====================
