@@ -684,8 +684,15 @@ URL을 확인해주세요: ${apiUrl}
 
         return { success: false, message: `연동 테스트 실패 (상태 코드: ${response.status})` };
       } else if (connection.platform === MediaPlatform.TISTORY) {
-        // 티스토리 쿠키 테스트 - 블로그 URL이 없으면 자동 추출
+        // 티스토리 쿠키 테스트 - 블로그 URL이 없거나 잘못된 경우 자동 추출
         let blogUrl = connection.accountUrl || connection.apiUrl;
+
+        // www.tistory.com은 메인 페이지이므로 무효한 URL로 처리
+        if (blogUrl && blogUrl.includes('www.tistory.com')) {
+          this.logger.log('잘못된 블로그 URL (www.tistory.com) 감지, 재추출 시도...');
+          blogUrl = null;
+          connection.accountUrl = null;
+        }
 
         // 블로그 URL이 없으면 자동 추출 시도
         if (!blogUrl) {
@@ -722,10 +729,10 @@ URL을 확인해주세요: ${apiUrl}
           return { success: false, message: '쿠키가 만료되었습니다. 다시 로그인해주세요.' };
         }
 
-        // finalUrl에서 블로그 URL 추출 시도 (아직 없는 경우)
+        // finalUrl에서 블로그 URL 추출 시도 (아직 없는 경우, www 제외)
         if (!blogUrl && finalUrl.includes('tistory.com')) {
           const urlMatch = finalUrl.match(/https?:\/\/([a-zA-Z0-9-]+)\.tistory\.com/);
-          if (urlMatch) {
+          if (urlMatch && urlMatch[1] !== 'www') {
             blogUrl = urlMatch[0];
             connection.accountUrl = blogUrl;
             await this.mediaConnectionRepository.save(connection);
@@ -758,10 +765,10 @@ URL을 확인해주세요: ${apiUrl}
 
           const mainFinalUrl = mainResponse.url || '';
           if (mainResponse.status === 200 && !mainFinalUrl.includes('login') && !mainFinalUrl.includes('auth')) {
-            // 여기서도 블로그 URL 추출 시도
+            // 여기서도 블로그 URL 추출 시도 (www 제외)
             if (!blogUrl) {
               const urlMatch = mainFinalUrl.match(/https?:\/\/([a-zA-Z0-9-]+)\.tistory\.com/);
-              if (urlMatch) {
+              if (urlMatch && urlMatch[1] !== 'www') {
                 blogUrl = urlMatch[0];
                 connection.accountUrl = blogUrl;
                 await this.mediaConnectionRepository.save(connection);
@@ -882,6 +889,15 @@ URL을 확인해주세요: ${apiUrl}
       // 쿠키를 HTTP 헤더 형식으로 변환
       const cookieHeader = cookies.includes(';') ? cookies : cookies;
 
+      // 유효한 블로그 URL인지 확인하는 헬퍼 함수 (www 제외)
+      const isValidBlogUrl = (url: string): boolean => {
+        const match = url.match(/https?:\/\/([a-zA-Z0-9-]+)\.tistory\.com/);
+        if (!match) return false;
+        const blogName = match[1];
+        // www는 메인 페이지이므로 제외
+        return blogName !== 'www' && blogName.length > 0;
+      };
+
       // 티스토리 관리 페이지 접속 시도
       const response = await fetch('https://www.tistory.com/manage', {
         method: 'GET',
@@ -898,8 +914,8 @@ URL을 확인해주세요: ${apiUrl}
         this.logger.log(`리다이렉트 URL: ${locationHeader}`);
 
         // https://blogname.tistory.com/manage 형식에서 블로그 URL 추출
-        const blogMatch = locationHeader.match(/https?:\/\/([^.]+\.tistory\.com)/);
-        if (blogMatch) {
+        const blogMatch = locationHeader.match(/https?:\/\/([a-zA-Z0-9-]+)\.tistory\.com/);
+        if (blogMatch && isValidBlogUrl(blogMatch[0])) {
           const blogUrl = blogMatch[0];
           this.logger.log(`추출된 블로그 URL: ${blogUrl}`);
           return blogUrl;
@@ -910,12 +926,13 @@ URL을 확인해주세요: ${apiUrl}
       if (response.ok || response.status === 200) {
         const html = await response.text();
 
-        // 블로그 URL 패턴 검색
-        const blogUrlMatch = html.match(/https?:\/\/([a-zA-Z0-9-]+)\.tistory\.com/);
-        if (blogUrlMatch) {
-          const blogUrl = blogUrlMatch[0];
-          this.logger.log(`HTML에서 추출된 블로그 URL: ${blogUrl}`);
-          return blogUrl;
+        // 블로그 URL 패턴 검색 (www 제외)
+        const blogUrlMatches = html.matchAll(/https?:\/\/([a-zA-Z0-9-]+)\.tistory\.com/g);
+        for (const match of blogUrlMatches) {
+          if (isValidBlogUrl(match[0])) {
+            this.logger.log(`HTML에서 추출된 블로그 URL: ${match[0]}`);
+            return match[0];
+          }
         }
       }
 
@@ -931,11 +948,12 @@ URL을 확인해주세요: ${apiUrl}
 
       if (blogListResponse.ok) {
         const blogListHtml = await blogListResponse.text();
-        const blogMatch = blogListHtml.match(/https?:\/\/([a-zA-Z0-9-]+)\.tistory\.com/);
-        if (blogMatch) {
-          const blogUrl = blogMatch[0];
-          this.logger.log(`블로그 목록에서 추출된 URL: ${blogUrl}`);
-          return blogUrl;
+        const blogMatches = blogListHtml.matchAll(/https?:\/\/([a-zA-Z0-9-]+)\.tistory\.com/g);
+        for (const match of blogMatches) {
+          if (isValidBlogUrl(match[0])) {
+            this.logger.log(`블로그 목록에서 추출된 URL: ${match[0]}`);
+            return match[0];
+          }
         }
       }
 

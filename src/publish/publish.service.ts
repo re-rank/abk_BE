@@ -167,11 +167,17 @@ export class PublishService {
         return publishLog;
       }
 
-      // 블로그 URL 확인 (accountUrl 또는 apiUrl 사용)
-      const blogUrl = tistoryConnection.accountUrl || tistoryConnection.apiUrl || '';
+      // 블로그 URL 확인 (accountUrl 또는 apiUrl 사용, www.tistory.com은 무효)
+      let blogUrl = tistoryConnection.accountUrl || tistoryConnection.apiUrl || '';
+
+      // www.tistory.com은 메인 페이지이므로 무효한 URL
+      if (blogUrl.includes('www.tistory.com')) {
+        blogUrl = '';
+      }
+
       if (!blogUrl) {
         publishLog.status = PublishStatus.FAILED;
-        publishLog.errorMessage = '티스토리 블로그 URL이 필요합니다. 매체 연동에서 블로그 URL(예: https://myblog.tistory.com)을 확인해주세요.';
+        publishLog.errorMessage = '티스토리 블로그 URL이 필요합니다. 매체 연동에서 "연동 테스트" 버튼을 클릭하면 블로그 URL이 자동으로 추출됩니다.';
         await this.publishLogRepository.save(publishLog);
         return publishLog;
       }
