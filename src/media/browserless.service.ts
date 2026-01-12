@@ -113,8 +113,8 @@ export class BrowserlessService {
       this.logger.log(`로그인 페이지로 이동 중: ${loginUrls[platform]}`);
 
       await page.goto(loginUrls[platform], {
-        waitUntil: 'networkidle',
-        timeout: 30000,
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
       });
 
       this.logger.log(`현재 URL: ${page.url()}`);
