@@ -61,12 +61,13 @@ export class BrowserlessService {
       // 고유 세션 ID 생성
       const sessionId = `abk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      // Browserless.io WebSocket 엔드포인트 (live=true로 liveURL 활성화)
+      // Browserless.io WebSocket 엔드포인트
       const launchOptions = JSON.stringify({
         stealth: true,
         args: ['--window-size=1280,800'],
       });
-      const browserlessUrl = `wss://chrome.browserless.io?token=${apiKey}&launch=${encodeURIComponent(launchOptions)}&timeout=600000`;
+      // Free tier는 최대 60초 제한
+      const browserlessUrl = `wss://chrome.browserless.io?token=${apiKey}&launch=${encodeURIComponent(launchOptions)}`;
 
       this.logger.log(`Browserless.io에 연결 중... (platform: ${platform}, sessionId: ${sessionId})`);
 
@@ -105,7 +106,7 @@ export class BrowserlessService {
       let liveViewUrl = '';
       try {
         const liveUrlResponse = await cdpSession.send('Browserless.liveURL' as any, {
-          timeout: 600000, // 10분
+          timeout: 55000, // 55초 (Free tier 60초 제한)
         });
         liveViewUrl = (liveUrlResponse as any).liveURL || (liveUrlResponse as any).url || '';
         this.logger.log(`LiveURL 가져오기 응답: ${JSON.stringify(liveUrlResponse)}`);
