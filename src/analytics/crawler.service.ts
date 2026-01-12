@@ -217,12 +217,12 @@ export class CrawlerService {
 
   /**
    * 네이버 블로그 통계 크롤링 (로그인 필요)
-   * 
+   *
    * ⚠️ 주의: 웹 크롤링은 불안정하며, 다음과 같은 문제가 발생할 수 있습니다:
    * - 로그인 페이지 구조 변경
    * - CAPTCHA 또는 보안 인증 요구
    * - 네트워크 지연 또는 타임아웃
-   * 
+   *
    * 권장: 네이버 블로그 API 또는 RSS를 사용하세요.
    */
   async crawlNaverBlogStats(
@@ -233,62 +233,148 @@ export class CrawlerService {
       return null;
     }
 
+    // 블로그 ID 추출
+    const blogId = this.extractNaverBlogId(connection.accountUrl || '');
+    if (!blogId) {
+      this.logger.warn(`네이버 블로그 ID 추출 실패: ${connection.accountUrl}. URL 형식: https://blog.naver.com/블로그ID`);
+      return null;
+    }
+
     const browser = await this.getBrowser();
     const page = await browser.newPage();
-    
+
     // 타임아웃 설정 증가
     page.setDefaultTimeout(60000); // 60초
 
     try {
-      this.logger.log(`네이버 블로그 통계 수집 시작: ${connection.accountUrl}`);
-      
+      this.logger.log(`네이버 블로그 통계 수집 시작: ${connection.accountUrl} (블로그 ID: ${blogId})`);
+
       // 네이버 로그인
       await page.goto('https://nid.naver.com/nidlogin.login', {
         waitUntil: 'domcontentloaded',
         timeout: 60000,
       });
 
-      // 로그인 폼 입력 (Playwright 키보드 입력으로 캡챠 우회 시도)
+      // 로그인 폼 입력 (keyboard.type()으로 캡챠 우회 시도)
       const idInput = await page.waitForSelector('#id', { timeout: 10000, state: 'attached' }).catch(() => null);
-      
+
       if (!idInput) {
         this.logger.warn('네이버 블로그 크롤링: 로그인 폼을 찾을 수 없습니다. 이미 로그인되어 있거나 페이지 구조가 변경되었습니다.');
-        // 이미 로그인된 경우 블로그 관리 페이지로 이동 시도
       } else {
-        await page.fill('#id', connection.username);
-        await page.fill('#pw', connection.password);
+        // 캡챠 우회를 위해 fill() 대신 keyboard.type() 사용
+        await idInput.click();
+        await page.keyboard.type(connection.username, { delay: 100 });
+
+        const pwInput = await page.$('#pw');
+        if (pwInput) {
+          await pwInput.click();
+          await page.keyboard.type(connection.password, { delay: 100 });
+        }
+
         await page.click('.btn_login');
 
         // 로그인 완료 대기
         await page.waitForTimeout(3000);
+
+        // 로그인 성공 여부 확인
+        const currentUrl = page.url();
+        this.logger.log(`로그인 후 URL: ${currentUrl}`);
       }
 
-      // 블로그 관리자 페이지로 이동
-      await page.goto('https://admin.blog.naver.com/StatisticsPage.naver', {
+      // 블로그 관리자 통계 페이지로 이동 (새로운 URL 형식)
+      const statsUrl = `https://admin.blog.naver.com/${blogId}/stat/today`;
+      this.logger.log(`통계 페이지로 이동: ${statsUrl}`);
+
+      await page.goto(statsUrl, {
         waitUntil: 'domcontentloaded',
         timeout: 60000,
       });
-      await page.waitForTimeout(2000);
+      await page.waitForTimeout(3000);
 
-      // 통계 데이터 추출 (실제 구현 시 페이지 구조에 맞게 수정 필요)
+      // 현재 페이지 URL 및 상태 로깅
+      const finalUrl = page.url();
+      this.logger.log(`현재 페이지 URL: ${finalUrl}`);
+
+      // 통계 데이터 추출
       const stats: BlogStats = {
         totalPosts: 0,
         totalViews: 0,
         todayVisitors: 0,
       };
 
-      // 오늘 방문자 수
-      const todayVisitorsEl = await page.$('.today_cnt, .today .count').catch(() => null);
-      if (todayVisitorsEl) {
-        const text = await todayVisitorsEl.textContent();
-        stats.todayVisitors = this.parseNumber(text || '0');
+      // 오늘 방문자 수 셀렉터 (여러 패턴 시도)
+      const todaySelectors = [
+        '.today_area .num',
+        '.stat_today .count',
+        '.today_cnt',
+        '.today .count',
+        '.stat_num.today',
+        '[class*="today"] .num',
+        '[class*="today"] span',
+        '.stat_box .today .num',
+      ];
+
+      for (const selector of todaySelectors) {
+        const el = await page.$(selector).catch(() => null);
+        if (el) {
+          const text = await el.textContent();
+          const parsed = this.parseNumber(text || '0');
+          if (parsed > 0) {
+            stats.todayVisitors = parsed;
+            this.logger.log(`오늘 방문자 발견 (${selector}): ${parsed}`);
+            break;
+          }
+        }
       }
 
-      // 총 방문자 수
-      const totalVisitorsEl = await page.$('.total_cnt, .total .count').catch(() => null);
-      if (totalVisitorsEl) {
-        const text = await totalVisitorsEl.textContent();
-        stats.totalViews = this.parseNumber(text || '0');
+      // 총 방문자 수 셀렉터 (여러 패턴 시도)
+      const totalSelectors = [
+        '.total_area .num',
+        '.stat_total .count',
+        '.total_cnt',
+        '.total .count',
+        '.stat_num.total',
+        '[class*="total"] .num',
+        '[class*="total"] span',
+        '.stat_box .total .num',
+      ];
+
+      for (const selector of totalSelectors) {
+        const el = await page.$(selector).catch(() => null);
+        if (el) {
+          const text = await el.textContent();
+          const parsed = this.parseNumber(text || '0');
+          if (parsed > 0) {
+            stats.totalViews = parsed;
+            this.logger.log(`총 조회수 발견 (${selector}): ${parsed}`);
+            break;
+          }
+        }
+      }
+
+      // 통계를 찾지 못한 경우 페이지 HTML 디버깅
+      if (stats.todayVisitors === 0 && stats.totalViews === 0) {
+        this.logger.warn('통계 데이터를 찾지 못했습니다. 페이지 구조를 확인합니다.');
+
+        // 페이지 내 모든 숫자 요소 검색
+        const allNumbers = await page.evaluate(() => {
+          const elements = document.querySelectorAll('span, div, p, strong');
+          const results: string[] = [];
+          elements.forEach(el => {
+            const text = el.textContent?.trim() || '';
+            if (/^\d{1,3}(,\d{3})*$/.test(text) || /^\d+$/.test(text)) {
+              results.push(el.className + ': ' + text);
+            }
+          });
+          return results.slice(0, 20);
+        });
+
+        this.logger.log('페이지 내 숫자 요소들: ' + allNumbers.join(', '));
+
+        // 디버깅용 스크린샷
+        const screenshotPath = 'debug-naver-stats-' + Date.now() + '.png';
+        await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
+        this.logger.log('디버깅 스크린샷 저장: ' + screenshotPath);
       }
 
       this.logger.log(`네이버 블로그 통계 수집 완료: 오늘 방문자 ${stats.todayVisitors}, 총 조회수 ${stats.totalViews}`);
@@ -827,6 +913,17 @@ export class CrawlerService {
    */
   private extractTistoryBlogName(url: string): string {
     const match = url.match(/https?:\/\/([^.]+)\.tistory\.com/);
+    return match ? match[1] : '';
+  }
+
+  /**
+   * 네이버 블로그 ID 추출
+   * @example https://blog.naver.com/re-rank → re-rank
+   * @example https://m.blog.naver.com/re-rank → re-rank
+   */
+  private extractNaverBlogId(url: string): string {
+    // https://blog.naver.com/blogId 형식
+    const match = url.match(/https?:\/\/(?:m\.)?blog\.naver\.com\/([^\/\?]+)/);
     return match ? match[1] : '';
   }
 

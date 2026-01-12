@@ -1,35 +1,39 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, LessThanOrEqual, In } from 'typeorm';
 import { Content, ContentStatus } from '../database/entities/content.entity';
 import { Project } from '../database/entities/project.entity';
+import { PublishLog, PublishStatus, PublishPlatform } from '../database/entities/publish-log.entity';
 import { AiService } from './ai.service';
 import { BacklinksService } from '../backlinks/backlinks.service';
 import { GenerateContentDto } from './dto/generate-content.dto';
 import { UpdateContentDto } from './dto/update-content.dto';
 import { CreateContentDto } from './dto/create-content.dto';
+import { ScheduleContentDto } from './dto/schedule-content.dto';
+
+const PUBLISH_PLATFORMS = ['WORDPRESS', 'MEDIUM', 'NAVER_BLOG', 'TISTORY'] as const;
 
 @Injectable()
 export class ContentService {
+  private readonly logger = new Logger(ContentService.name);
+
   constructor(
     @InjectRepository(Content)
     private contentRepository: Repository<Content>,
     @InjectRepository(Project)
     private projectRepository: Repository<Project>,
+    @InjectRepository(PublishLog)
+    private publishLogRepository: Repository<PublishLog>,
     private aiService: AiService,
     private backlinksService: BacklinksService,
   ) {}
 
-  /**
-   * 콘텐츠 직접 생성 (사용자가 직접 작성한 콘텐츠 업로드)
-   */
   async create(
     userId: string,
     createContentDto: CreateContentDto,
   ): Promise<Content> {
     const { projectId, title, body, contentType, searchCta } = createContentDto;
 
-    // 프로젝트 조회 및 권한 확인
     const project = await this.projectRepository.findOne({
       where: { id: projectId },
     });
@@ -42,34 +46,27 @@ export class ContentService {
       throw new ForbiddenException('이 프로젝트에 접근할 권한이 없습니다.');
     }
 
-    // 콘텐츠 저장
     const content = this.contentRepository.create({
       projectId,
       title,
       body,
       contentType,
-      searchCta: searchCta || `${project.brandName} 검색해보세요!`,
+      searchCta: searchCta || project.brandName + ' 검색해보세요!',
       status: ContentStatus.CREATED,
     });
 
     const savedContent = await this.contentRepository.save(content);
-
-    // SELF 백링크 자동 생성
     await this.backlinksService.createSelfBacklink(savedContent, project);
 
     return savedContent;
   }
 
-  /**
-   * AI를 통한 콘텐츠 자동 생성
-   */
   async generate(
     userId: string,
     generateContentDto: GenerateContentDto,
   ): Promise<Content> {
     const { projectId, contentType, topic } = generateContentDto;
 
-    // 프로젝트 조회 및 권한 확인
     const project = await this.projectRepository.findOne({
       where: { id: projectId },
     });
@@ -82,16 +79,14 @@ export class ContentService {
       throw new ForbiddenException('이 프로젝트에 접근할 권한이 없습니다.');
     }
 
-    // AI를 통한 콘텐츠 생성 (백링크 포함)
     const generated = await this.aiService.generateContent({
       brandName: project.brandName,
       mainKeyword: project.mainKeyword,
       contentType,
       topic,
-      targetUrl: project.targetUrl, // 백링크 삽입을 위한 타겟 URL
+      targetUrl: project.targetUrl,
     });
 
-    // 콘텐츠 저장
     const content = this.contentRepository.create({
       projectId,
       title: generated.title,
@@ -102,8 +97,6 @@ export class ContentService {
     });
 
     const savedContent = await this.contentRepository.save(content);
-
-    // SELF 백링크 자동 생성
     await this.backlinksService.createSelfBacklink(savedContent, project);
 
     return savedContent;
@@ -175,5 +168,144 @@ export class ContentService {
       relations: ['project'],
     });
   }
-}
 
+  async schedulePublish(
+    contentId: string,
+    userId: string,
+    scheduleDto: ScheduleContentDto,
+  ): Promise<Content> {
+    const content = await this.findOne(contentId, userId);
+    const project = content.project;
+
+    const scheduledAt = new Date(scheduleDto.scheduledAt);
+    if (scheduledAt <= new Date()) {
+      throw new ForbiddenException('예약 시간은 현재 시간 이후여야 합니다.');
+    }
+
+    let platforms = scheduleDto.platforms || [];
+    if (platforms.length === 0 && project.targetPlatforms) {
+      const targetPlatforms: unknown = project.targetPlatforms;
+      if (typeof targetPlatforms === 'string') {
+        platforms = targetPlatforms.split(',').filter(p => PUBLISH_PLATFORMS.includes(p as any));
+      } else if (Array.isArray(targetPlatforms)) {
+        platforms = targetPlatforms.filter(p => PUBLISH_PLATFORMS.includes(p as any));
+      }
+    }
+
+    if (platforms.length === 0) {
+      throw new ForbiddenException('발행할 플랫폼이 지정되지 않았습니다.');
+    }
+
+    content.status = ContentStatus.SCHEDULED;
+    content.scheduledAt = scheduledAt;
+    content.scheduledPlatforms = platforms.join(',');
+
+    for (const platform of platforms) {
+      const publishLog = this.publishLogRepository.create({
+        contentId: content.id,
+        platform: platform as PublishPlatform,
+        status: PublishStatus.SCHEDULED,
+        scheduledAt,
+      });
+      await this.publishLogRepository.save(publishLog);
+    }
+
+    this.logger.log('Content ' + content.id + ' scheduled for ' + scheduledAt.toISOString());
+
+    return this.contentRepository.save(content);
+  }
+
+  async cancelSchedule(contentId: string, userId: string, reason?: string): Promise<Content> {
+    const content = await this.findOne(contentId, userId);
+
+    if (content.status !== ContentStatus.SCHEDULED) {
+      throw new ForbiddenException('예약된 콘텐츠만 취소할 수 있습니다.');
+    }
+
+    content.status = ContentStatus.CREATED;
+    content.scheduledAt = null as any;
+    content.scheduledPlatforms = null as any;
+    content.qstashMessageIds = null as any;
+
+    await this.publishLogRepository.delete({
+      contentId: content.id,
+      status: PublishStatus.SCHEDULED,
+    });
+
+    this.logger.log('Content ' + content.id + ' schedule cancelled. Reason: ' + (reason || 'Not specified'));
+
+    return this.contentRepository.save(content);
+  }
+
+  async getPublishStatus(contentId: string, userId: string): Promise<{
+    content: Content;
+    publishLogs: PublishLog[];
+    summary: {
+      total: number;
+      scheduled: number;
+      processing: number;
+      success: number;
+      failed: number;
+    };
+  }> {
+    const content = await this.contentRepository.findOne({
+      where: { id: contentId },
+      relations: ['project', 'publishLogs'],
+    });
+
+    if (!content) {
+      throw new NotFoundException('콘텐츠를 찾을 수 없습니다.');
+    }
+
+    if (content.project.userId !== userId) {
+      throw new ForbiddenException('이 콘텐츠에 접근할 권한이 없습니다.');
+    }
+
+    const publishLogs = await this.publishLogRepository.find({
+      where: { contentId },
+      order: { createdAt: 'DESC' },
+    });
+
+    const summary = {
+      total: publishLogs.length,
+      scheduled: publishLogs.filter(l => l.status === PublishStatus.SCHEDULED).length,
+      processing: publishLogs.filter(l => l.status === PublishStatus.PROCESSING).length,
+      success: publishLogs.filter(l => l.status === PublishStatus.SUCCESS).length,
+      failed: publishLogs.filter(l => l.status === PublishStatus.FAILED).length,
+    };
+
+    return { content, publishLogs, summary };
+  }
+
+  async findScheduledContents(userId: string): Promise<Content[]> {
+    const projects = await this.projectRepository.find({
+      where: { userId },
+      select: ['id'],
+    });
+
+    const projectIds = projects.map(p => p.id);
+
+    if (projectIds.length === 0) {
+      return [];
+    }
+
+    return this.contentRepository.find({
+      where: {
+        projectId: In(projectIds),
+        status: ContentStatus.SCHEDULED,
+      },
+      relations: ['project', 'publishLogs'],
+      order: { scheduledAt: 'ASC' },
+    });
+  }
+
+  async findDueContents(): Promise<Content[]> {
+    return this.contentRepository.find({
+      where: {
+        status: ContentStatus.SCHEDULED,
+        scheduledAt: LessThanOrEqual(new Date()),
+      },
+      relations: ['project'],
+    });
+  }
+}

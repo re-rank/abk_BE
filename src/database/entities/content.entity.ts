@@ -20,6 +20,8 @@ export enum ContentType {
 }
 
 export enum ContentStatus {
+  SCHEDULED = 'SCHEDULED',  // 발행 예약됨
+  PUBLISHING = 'PUBLISHING', // 발행 중
   CREATED = 'CREATED',
   PUBLISHED = 'PUBLISHED',
   FAILED = 'FAILED',
@@ -71,6 +73,16 @@ export class Content {
 
   @Column({ nullable: true })
   tistoryPostId: string;
+
+  // 예약 발행 설정
+  @Column({ type: 'timestamp', nullable: true })
+  scheduledAt: Date;  // 예약 발행 시간 (콘텐츠별 설정)
+
+  @Column({ nullable: true })
+  scheduledPlatforms: string;  // 예약 발행 플랫폼 (comma separated)
+
+  @Column({ nullable: true })
+  qstashMessageIds: string;  // QStash 메시지 ID들 (JSON)
 
   @OneToMany(() => Backlink, (backlink) => backlink.content)
   backlinks: Backlink[];

@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { Client } from '@upstash/qstash';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, LessThanOrEqual } from 'typeorm';
 import { QueueService } from './queue.service';
 import { Project } from '../database/entities/project.entity';
 import { Content, ContentStatus } from '../database/entities/content.entity';
@@ -135,9 +135,18 @@ export class SchedulerService {
 
     // 프로젝트에 targetPlatforms가 설정되어 있지 않으면 연결된 매체에서 가져오기
     let targetPlatforms: string[] = [];
-    
+
     if (project.targetPlatforms) {
-      targetPlatforms = project.targetPlatforms.split(',').filter(p => PUBLISH_PLATFORMS.includes(p as any));
+      const platforms: unknown = project.targetPlatforms;
+
+      // targetPlatforms가 문자열인 경우
+      if (typeof platforms === 'string') {
+        targetPlatforms = platforms.split(',').filter(p => PUBLISH_PLATFORMS.includes(p as any));
+      }
+      // 배열인 경우 (이미 파싱된 경우)
+      else if (Array.isArray(platforms)) {
+        targetPlatforms = platforms.filter(p => PUBLISH_PLATFORMS.includes(p as any));
+      }
     }
     
     // targetPlatforms가 비어있으면 연결된 매체에서 발행 가능한 플랫폼 자동 선택
@@ -163,7 +172,7 @@ export class SchedulerService {
     }
 
     // 랜덤 지연 계산 (프로젝트 설정 기반)
-    const maxDelayMinutes = project.randomDelayMinutes || 240;
+    const maxDelayMinutes = project.randomDelayMinutes ?? 240; // 0은 "없음"을 의미
     const randomDelayMs = Math.floor(Math.random() * maxDelayMinutes * 60 * 1000);
     const scheduledTime = new Date(Date.now() + randomDelayMs);
 
@@ -413,5 +422,84 @@ export class SchedulerService {
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
-}
 
+  /**
+   * 매 분마다 콘텐츠별 예약 발행 확인
+   */
+  @Cron(CronExpression.EVERY_MINUTE)
+  async checkContentScheduledPublish() {
+    // 발행 예정 시간이 지난 SCHEDULED 상태의 콘텐츠 조회
+    const dueContents = await this.contentRepository.find({
+      where: {
+        status: ContentStatus.SCHEDULED,
+        scheduledAt: LessThanOrEqual(new Date()),
+      },
+      relations: ['project'],
+    });
+
+    if (dueContents.length === 0) {
+      return;
+    }
+
+    this.logger.log('Found ' + dueContents.length + ' content(s) due for scheduled publish');
+
+    for (const content of dueContents) {
+      try {
+        await this.processContentScheduledPublish(content);
+      } catch (error) {
+        this.logger.error('Failed to process scheduled content ' + content.id + ': ' + error.message);
+      }
+    }
+  }
+
+  /**
+   * 개별 콘텐츠의 예약 발행 처리
+   */
+  private async processContentScheduledPublish(content: Content) {
+    const project = content.project;
+    if (!project || !project.userId) {
+      this.logger.warn('Content ' + content.id + ' has no valid project or userId');
+      return;
+    }
+
+    // 예약된 플랫폼 파싱
+    const platforms: string[] = content.scheduledPlatforms 
+      ? content.scheduledPlatforms.split(',').filter(p => PUBLISH_PLATFORMS.includes(p as any))
+      : [];
+
+    if (platforms.length === 0) {
+      this.logger.warn('Content ' + content.id + ' has no scheduled platforms');
+      return;
+    }
+
+    // 상태를 PUBLISHING으로 변경
+    content.status = ContentStatus.PUBLISHING;
+    await this.contentRepository.save(content);
+
+    this.logger.log('Processing scheduled publish for content ' + content.id + ' on platforms: ' + platforms.join(', '));
+
+    // 각 플랫폼에 즉시 발행 (지연 없음)
+    const qstashMessageIds: string[] = [];
+    for (const platform of platforms) {
+      try {
+        const result = await this.schedulePublish(
+          content.id,
+          platform as PublishPlatformType,
+          project.userId,
+          new Date(), // 즉시 발행
+        );
+        if (result && result.messageId) {
+          qstashMessageIds.push(result.messageId);
+        }
+      } catch (error) {
+        this.logger.error('Failed to schedule publish for content ' + content.id + ' on ' + platform + ': ' + error.message);
+      }
+    }
+
+    // QStash 메시지 ID 저장
+    if (qstashMessageIds.length > 0) {
+      content.qstashMessageIds = JSON.stringify(qstashMessageIds);
+      await this.contentRepository.save(content);
+    }
+  }
+}

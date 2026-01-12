@@ -14,6 +14,7 @@ import { ContentService } from './content.service';
 import { CreateContentDto } from './dto/create-content.dto';
 import { GenerateContentDto } from './dto/generate-content.dto';
 import { UpdateContentDto } from './dto/update-content.dto';
+import { ScheduleContentDto, CancelScheduleDto } from './dto/schedule-content.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
@@ -57,6 +58,12 @@ export class ContentController {
     return this.contentService.findAllByProject(projectId, user.userId);
   }
 
+  @Get('scheduled')
+  @ApiOperation({ summary: '예약된 콘텐츠 목록 조회' })
+  findScheduled(@CurrentUser() user: AuthUser) {
+    return this.contentService.findScheduledContents(user.userId);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: '콘텐츠 상세 조회' })
   findOne(
@@ -64,6 +71,15 @@ export class ContentController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.contentService.findOne(id, user.userId);
+  }
+
+  @Get(':id/publish-status')
+  @ApiOperation({ summary: '콘텐츠 발행 상태 조회' })
+  getPublishStatus(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.contentService.getPublishStatus(id, user.userId);
   }
 
   @Patch(':id')
@@ -76,6 +92,26 @@ export class ContentController {
     return this.contentService.update(id, user.userId, updateContentDto);
   }
 
+  @Post(':id/schedule')
+  @ApiOperation({ summary: '콘텐츠 예약 발행 설정' })
+  schedulePublish(
+    @Param('id') id: string,
+    @Body() scheduleDto: ScheduleContentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.contentService.schedulePublish(id, user.userId, scheduleDto);
+  }
+
+  @Post(':id/cancel-schedule')
+  @ApiOperation({ summary: '예약 발행 취소' })
+  cancelSchedule(
+    @Param('id') id: string,
+    @Body() cancelDto: CancelScheduleDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.contentService.cancelSchedule(id, user.userId, cancelDto.reason);
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: '콘텐츠 삭제' })
   remove(
@@ -85,4 +121,3 @@ export class ContentController {
     return this.contentService.remove(id, user.userId);
   }
 }
-

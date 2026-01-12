@@ -1,13 +1,17 @@
-import { Controller, Post, Body, Logger, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Logger, UseGuards, Get } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { QueueService, PublishJobData, SnsJobData } from './queue.service';
+import { SchedulerService } from './scheduler.service';
 
 @ApiTags('Queue')
 @Controller('queue')
 export class QueueController {
   private readonly logger = new Logger(QueueController.name);
 
-  constructor(private queueService: QueueService) {}
+  constructor(
+    private queueService: QueueService,
+    private schedulerService: SchedulerService,
+  ) {}
 
   // QStash webhook endpoint for publish jobs
   @Post('process-publish')
@@ -75,6 +79,24 @@ export class QueueController {
       };
     } catch (error) {
       this.logger.error('Failed to queue SNS job', error);
+      throw error;
+    }
+  }
+
+  // Test endpoint to manually trigger scheduled publish check
+  @Get('test-scheduler')
+  @ApiOperation({ summary: 'Manually trigger scheduled publish check (for testing)' })
+  async testScheduler() {
+    this.logger.log('Manually triggering scheduled publish check...');
+
+    try {
+      await this.schedulerService.checkScheduledPublish();
+      return {
+        success: true,
+        message: 'Scheduled publish check completed',
+      };
+    } catch (error) {
+      this.logger.error('Failed to run scheduled publish check', error);
       throw error;
     }
   }
