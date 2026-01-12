@@ -167,10 +167,19 @@ export class MediaController {
       // 3. 이미 key=value; 형식이면 그대로 사용
     }
 
+    // 티스토리인 경우 블로그 URL이 없으면 자동 추출 시도
+    let finalBlogUrl = blogUrl;
+    if (platform === 'tistory' && !blogUrl) {
+      const extractedUrl = await this.mediaService.extractTistoryBlogUrl(normalizedCookies);
+      if (extractedUrl) {
+        finalBlogUrl = extractedUrl;
+      }
+    }
+
     // 계정 정보
-    const accountInfo = blogName || blogUrl ? {
+    const accountInfo = blogName || finalBlogUrl ? {
       name: blogName || '',
-      url: blogUrl,
+      url: finalBlogUrl,
     } : undefined;
 
     // 쿠키 저장
@@ -185,7 +194,9 @@ export class MediaController {
     return {
       success: result.success,
       message: result.success
-        ? '쿠키가 저장되었습니다. 연동 테스트를 진행해주세요.'
+        ? finalBlogUrl
+          ? `쿠키가 저장되었습니다. 블로그: ${finalBlogUrl}`
+          : '쿠키가 저장되었습니다. 연동 테스트를 진행해주세요.'
         : result.message,
       connectionId: result.connectionId,
     };

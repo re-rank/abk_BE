@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -17,6 +18,8 @@ import { PlaywrightAuthService } from './playwright-auth.service';
 
 @Injectable()
 export class MediaService {
+  private readonly logger = new Logger(MediaService.name);
+
   constructor(
     @InjectRepository(MediaConnection)
     private mediaConnectionRepository: Repository<MediaConnection>,
@@ -681,13 +684,26 @@ URL을 확인해주세요: ${apiUrl}
 
         return { success: false, message: `연동 테스트 실패 (상태 코드: ${response.status})` };
       } else if (connection.platform === MediaPlatform.TISTORY) {
-        // 티스토리 쿠키 테스트 - 블로그 URL이 있으면 해당 블로그 테스트
-        let testUrl = 'https://www.tistory.com/';
+        // 티스토리 쿠키 테스트 - 블로그 URL이 없으면 자동 추출
+        let blogUrl = connection.accountUrl || connection.apiUrl;
 
-        // 저장된 블로그 URL이 있으면 해당 블로그의 관리 페이지 사용
-        if (connection.accountUrl) {
-          const blogUrl = connection.accountUrl.replace(/\/$/, '');
-          testUrl = `${blogUrl}/manage/posts`;
+        // 블로그 URL이 없으면 자동 추출 시도
+        if (!blogUrl) {
+          this.logger.log('티스토리 블로그 URL이 없어 자동 추출 시도...');
+          const extractedUrl = await this.extractTistoryBlogUrl(cookies);
+          if (extractedUrl) {
+            blogUrl = extractedUrl;
+            // 추출된 URL을 연동 정보에 저장
+            connection.accountUrl = extractedUrl;
+            await this.mediaConnectionRepository.save(connection);
+            this.logger.log(`블로그 URL 자동 저장 완료: ${extractedUrl}`);
+          }
+        }
+
+        let testUrl = 'https://www.tistory.com/';
+        if (blogUrl) {
+          const cleanBlogUrl = blogUrl.replace(/\/$/, '');
+          testUrl = `${cleanBlogUrl}/manage/posts`;
         }
 
         const response = await fetch(testUrl, {
@@ -706,15 +722,26 @@ URL을 확인해주세요: ${apiUrl}
           return { success: false, message: '쿠키가 만료되었습니다. 다시 로그인해주세요.' };
         }
 
+        // finalUrl에서 블로그 URL 추출 시도 (아직 없는 경우)
+        if (!blogUrl && finalUrl.includes('tistory.com')) {
+          const urlMatch = finalUrl.match(/https?:\/\/([a-zA-Z0-9-]+)\.tistory\.com/);
+          if (urlMatch) {
+            blogUrl = urlMatch[0];
+            connection.accountUrl = blogUrl;
+            await this.mediaConnectionRepository.save(connection);
+            this.logger.log(`최종 URL에서 블로그 URL 추출 및 저장: ${blogUrl}`);
+          }
+        }
+
         // 200 응답이고 티스토리 페이지면 성공
         if (response.status === 200 && finalUrl.includes('tistory.com') && !finalUrl.includes('login')) {
           return {
             success: true,
-            message: '티스토리 연동이 정상입니다.',
-            accountInfo: connection.accountName ? {
-              name: connection.accountName,
-              url: connection.accountUrl,
-            } : undefined,
+            message: blogUrl ? `티스토리 연동이 정상입니다. (${blogUrl})` : '티스토리 연동이 정상입니다.',
+            accountInfo: {
+              name: connection.accountName || '',
+              url: blogUrl || connection.accountUrl,
+            },
           };
         }
 
@@ -731,13 +758,22 @@ URL을 확인해주세요: ${apiUrl}
 
           const mainFinalUrl = mainResponse.url || '';
           if (mainResponse.status === 200 && !mainFinalUrl.includes('login') && !mainFinalUrl.includes('auth')) {
+            // 여기서도 블로그 URL 추출 시도
+            if (!blogUrl) {
+              const urlMatch = mainFinalUrl.match(/https?:\/\/([a-zA-Z0-9-]+)\.tistory\.com/);
+              if (urlMatch) {
+                blogUrl = urlMatch[0];
+                connection.accountUrl = blogUrl;
+                await this.mediaConnectionRepository.save(connection);
+              }
+            }
             return {
               success: true,
-              message: '티스토리 연동이 정상입니다.',
-              accountInfo: connection.accountName ? {
-                name: connection.accountName,
-                url: connection.accountUrl,
-              } : undefined,
+              message: blogUrl ? `티스토리 연동이 정상입니다. (${blogUrl})` : '티스토리 연동이 정상입니다.',
+              accountInfo: {
+                name: connection.accountName || '',
+                url: blogUrl || connection.accountUrl,
+              },
             };
           }
         }
@@ -833,6 +869,81 @@ URL을 확인해주세요: ${apiUrl}
         success: false,
         message: `쿠키 저장 실패: ${error.message}`,
       };
+    }
+  }
+
+  /**
+   * 티스토리 쿠키로 블로그 URL 자동 추출
+   */
+  async extractTistoryBlogUrl(cookies: string): Promise<string | null> {
+    try {
+      this.logger.log('티스토리 블로그 URL 자동 추출 시작...');
+
+      // 쿠키를 HTTP 헤더 형식으로 변환
+      const cookieHeader = cookies.includes(';') ? cookies : cookies;
+
+      // 티스토리 관리 페이지 접속 시도
+      const response = await fetch('https://www.tistory.com/manage', {
+        method: 'GET',
+        headers: {
+          'Cookie': cookieHeader,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+        redirect: 'manual', // 리다이렉트 자동 따라가지 않음
+      });
+
+      // 리다이렉트 URL에서 블로그 주소 추출
+      const locationHeader = response.headers.get('location');
+      if (locationHeader) {
+        this.logger.log(`리다이렉트 URL: ${locationHeader}`);
+
+        // https://blogname.tistory.com/manage 형식에서 블로그 URL 추출
+        const blogMatch = locationHeader.match(/https?:\/\/([^.]+\.tistory\.com)/);
+        if (blogMatch) {
+          const blogUrl = blogMatch[0];
+          this.logger.log(`추출된 블로그 URL: ${blogUrl}`);
+          return blogUrl;
+        }
+      }
+
+      // 리다이렉트가 없으면 HTML에서 블로그 정보 추출 시도
+      if (response.ok || response.status === 200) {
+        const html = await response.text();
+
+        // 블로그 URL 패턴 검색
+        const blogUrlMatch = html.match(/https?:\/\/([a-zA-Z0-9-]+)\.tistory\.com/);
+        if (blogUrlMatch) {
+          const blogUrl = blogUrlMatch[0];
+          this.logger.log(`HTML에서 추출된 블로그 URL: ${blogUrl}`);
+          return blogUrl;
+        }
+      }
+
+      // 다른 방법: 블로그 목록 API 호출 시도
+      const blogListResponse = await fetch('https://www.tistory.com/manage/blog', {
+        method: 'GET',
+        headers: {
+          'Cookie': cookieHeader,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+        redirect: 'follow',
+      });
+
+      if (blogListResponse.ok) {
+        const blogListHtml = await blogListResponse.text();
+        const blogMatch = blogListHtml.match(/https?:\/\/([a-zA-Z0-9-]+)\.tistory\.com/);
+        if (blogMatch) {
+          const blogUrl = blogMatch[0];
+          this.logger.log(`블로그 목록에서 추출된 URL: ${blogUrl}`);
+          return blogUrl;
+        }
+      }
+
+      this.logger.warn('블로그 URL을 자동으로 추출할 수 없습니다.');
+      return null;
+    } catch (error) {
+      this.logger.error(`블로그 URL 추출 실패: ${error.message}`);
+      return null;
     }
   }
 }
