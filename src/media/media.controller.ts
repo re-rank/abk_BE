@@ -127,19 +127,44 @@ export class MediaController {
       naver: 'NAVER_BLOG',
     };
 
-    // 쿠키 형식 정규화 (JSON 배열이면 문자열로 변환)
+    // 쿠키 형식 정규화 (다양한 형식 지원)
     let normalizedCookies = cookies.trim();
+
+    // 1. JSON 배열 형식 시도: [{name: 'xxx', value: 'yyy'}, ...]
     try {
-      // JSON 배열 형식인지 확인
       const parsed = JSON.parse(normalizedCookies);
       if (Array.isArray(parsed)) {
-        // [{name: 'xxx', value: 'yyy'}, ...] 형식을 'name=value; ...' 형식으로 변환
         normalizedCookies = parsed
           .map((c: any) => `${c.name}=${c.value}`)
           .join('; ');
       }
     } catch {
-      // JSON이 아니면 그대로 사용 (이미 key=value; 형식)
+      // JSON이 아니면 다른 형식 시도
+
+      // 2. Chrome DevTools 탭 구분 형식 (복사 시 탭으로 구분됨)
+      // 형식: name\tvalue\tdomain\tpath\t... (각 행이 하나의 쿠키)
+      if (normalizedCookies.includes('\t')) {
+        const lines = normalizedCookies.split('\n').filter(line => line.trim());
+        const cookiePairs: string[] = [];
+
+        for (const line of lines) {
+          const parts = line.split('\t');
+          // 첫 번째 컬럼이 name, 두 번째가 value
+          if (parts.length >= 2) {
+            const name = parts[0].trim();
+            const value = parts[1].trim();
+            // 헤더 행 스킵 (name이 'name'인 경우)
+            if (name && value && name.toLowerCase() !== 'name') {
+              cookiePairs.push(`${name}=${value}`);
+            }
+          }
+        }
+
+        if (cookiePairs.length > 0) {
+          normalizedCookies = cookiePairs.join('; ');
+        }
+      }
+      // 3. 이미 key=value; 형식이면 그대로 사용
     }
 
     // 계정 정보
