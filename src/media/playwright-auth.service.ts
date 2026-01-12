@@ -83,7 +83,15 @@ export class PlaywrightAuthService {
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-gpu',
-          '--single-process',
+          '--disable-software-rasterizer',
+          '--disable-extensions',
+          '--disable-background-networking',
+          '--disable-sync',
+          '--disable-translate',
+          '--metrics-recording-only',
+          '--no-first-run',
+          '--safebrowsing-disable-auto-update',
+          // '--single-process', // 제거: 서버리스 환경에서 불안정
         ],
       });
     }
@@ -98,6 +106,64 @@ export class PlaywrightAuthService {
       await this.browser.close();
       this.browser = null;
     }
+  }
+
+  /**
+   * 발행 전용 독립 브라우저 생성 (매번 새로 생성)
+   * 서버리스 환경에서 안정성을 위해 공유 브라우저 대신 사용
+   */
+  private async createFreshBrowser(): Promise<Browser> {
+    const fs = require('fs');
+    const { execSync } = require('child_process');
+
+    let execPath: string | undefined = undefined;
+
+    if (process.env.CHROMIUM_PATH && fs.existsSync(process.env.CHROMIUM_PATH)) {
+      execPath = process.env.CHROMIUM_PATH;
+    }
+
+    if (!execPath) {
+      try {
+        const systemChromium = execSync('which chromium || which chromium-browser || which google-chrome', { encoding: 'utf-8' }).trim();
+        if (systemChromium && fs.existsSync(systemChromium)) {
+          execPath = systemChromium;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (!execPath) {
+      const playwrightPath = process.env.PLAYWRIGHT_BROWSERS_PATH || '/app/.cache/ms-playwright';
+      const possiblePaths = [
+        `${playwrightPath}/chromium-1200/chrome-linux64/chrome`,
+        `${playwrightPath}/chromium-1200/chrome-linux/chrome`,
+        `${playwrightPath}/chromium_headless_shell-1200/chrome-linux64/headless_shell`,
+      ];
+      for (const path of possiblePaths) {
+        if (fs.existsSync(path)) {
+          execPath = path;
+          break;
+        }
+      }
+    }
+
+    this.logger.log(`발행용 새 브라우저 생성: ${execPath || 'Playwright 기본값'}`);
+
+    return await chromium.launch({
+      headless: true,
+      executablePath: execPath,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--disable-extensions',
+        '--disable-background-networking',
+        '--no-first-run',
+      ],
+    });
   }
 
   /**
@@ -1167,13 +1233,17 @@ export class PlaywrightAuthService {
     content: string,
     credentials?: { username: string; password: string },
   ): Promise<{ success: boolean; postId?: string; postUrl?: string; error?: string; newCookies?: string }> {
-    const browser = await this.getBrowser();
-    let context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      viewport: { width: 1280, height: 900 },
-    });
+    // 발행 전용 새 브라우저 생성 (서버리스 환경 안정성)
+    let browser: Browser | null = null;
+    let context: BrowserContext | null = null;
 
     try {
+      browser = await this.createFreshBrowser();
+      context = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        viewport: { width: 1280, height: 900 },
+      });
+
       // 쿠키 복원 - 문자열 형식과 JSON 배열 형식 모두 지원
       const cookieArray = this.parseCookieString(cookies, '.naver.com');
       this.logger.log(`쿠키 파싱 완료: ${cookieArray.length}개 쿠키`);
@@ -1200,7 +1270,8 @@ export class PlaywrightAuthService {
         this.logger.log('세션이 만료됨. 자동 재로그인 시도 중...');
         
         if (!credentials?.username || !credentials?.password) {
-          await context.close();
+          try { await context?.close(); } catch { /* ignore */ }
+          try { await browser?.close(); } catch { /* ignore */ }
           return {
             success: false,
             error: '세션이 만료되었습니다. 매체 연동을 다시 테스트해주세요.',
@@ -1209,9 +1280,10 @@ export class PlaywrightAuthService {
 
         // 재로그인 시도
         const reloginResult = await this.performNaverLogin(page, credentials.username, credentials.password);
-        
+
         if (!reloginResult.success) {
-          await context.close();
+          try { await context?.close(); } catch { /* ignore */ }
+          try { await browser?.close(); } catch { /* ignore */ }
           return {
             success: false,
             error: `재로그인 실패: ${reloginResult.error}`,
@@ -1219,19 +1291,20 @@ export class PlaywrightAuthService {
         }
 
         this.logger.log('재로그인 성공! 새 쿠키 저장됨');
-        
+
         // 글쓰기 페이지로 다시 이동
         await page.goto('https://blog.naver.com/GoBlogWrite.naver', {
           waitUntil: 'networkidle',
           timeout: 60000,
         });
         await page.waitForTimeout(5000);
-        
+
         currentUrl = page.url();
         this.logger.log(`재로그인 후 URL: ${currentUrl}`);
-        
+
         if (currentUrl.includes('nidlogin') || currentUrl.includes('login')) {
-          await context.close();
+          try { await context?.close(); } catch { /* ignore */ }
+          try { await browser?.close(); } catch { /* ignore */ }
           return {
             success: false,
             error: '재로그인 후에도 세션이 유지되지 않습니다. 계정을 확인해주세요.',
@@ -1324,12 +1397,14 @@ export class PlaywrightAuthService {
       // iframe 핸들 가져오기
       const iframeHandle = await page.$('iframe');
       if (!iframeHandle) {
-        await context.close();
+        try { await context?.close(); } catch { /* ignore */ }
+        try { await browser?.close(); } catch { /* ignore */ }
         return { success: false, error: '에디터 iframe을 찾을 수 없습니다.' };
       }
       const frame = await iframeHandle.contentFrame();
       if (!frame) {
-        await context.close();
+        try { await context?.close(); } catch { /* ignore */ }
+        try { await browser?.close(); } catch { /* ignore */ }
         return { success: false, error: '에디터 프레임에 접근할 수 없습니다.' };
       }
       
@@ -1705,7 +1780,9 @@ export class PlaywrightAuthService {
         this.logger.log('쿠키 저장 실패 - 컨텍스트가 닫힘');
       }
 
-      await context.close();
+      // 정리: 컨텍스트와 브라우저 모두 종료
+      try { await context?.close(); } catch { /* ignore */ }
+      try { await browser?.close(); } catch { /* ignore */ }
 
       if (publishSuccess || postId) {
         this.logger.log(`네이버 블로그 발행 완료: ${postUrl}`);
@@ -1725,7 +1802,9 @@ export class PlaywrightAuthService {
         };
       }
     } catch (error) {
-      await context.close();
+      // 정리: 컨텍스트와 브라우저 모두 종료
+      try { await context?.close(); } catch { /* ignore */ }
+      try { await browser?.close(); } catch { /* ignore */ }
       this.logger.error(`네이버 블로그 발행 오류: ${error.message}`);
       return {
         success: false,
