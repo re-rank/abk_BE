@@ -92,12 +92,18 @@ export class BrowserlessService {
           timeout: 600000, // 10분
         });
         liveViewUrl = (liveUrlResponse as any).liveURL || (liveUrlResponse as any).url || '';
-        this.logger.log(`LiveURL 가져오기 성공: ${liveViewUrl}`);
+        this.logger.log(`LiveURL 가져오기 응답: ${JSON.stringify(liveUrlResponse)}`);
       } catch (liveUrlError) {
-        this.logger.warn(`LiveURL 가져오기 실패, 대체 URL 사용: ${liveUrlError.message}`);
-        // 대체: Browserless.io sessions API로 세션 찾기
+        this.logger.warn(`LiveURL 가져오기 실패: ${liveUrlError.message}`);
+      }
+
+      // liveURL이 비어있으면 대체 URL 사용
+      if (!liveViewUrl) {
+        this.logger.warn('LiveURL이 비어있음, 대체 URL 사용');
         liveViewUrl = `https://chrome.browserless.io/live?token=${apiKey}`;
       }
+
+      this.logger.log(`최종 liveViewUrl: ${liveViewUrl}`);
 
       const loginUrls = {
         tistory: 'https://www.tistory.com/auth/login',
