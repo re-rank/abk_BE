@@ -56,10 +56,13 @@ export class BrowserlessService {
     }
 
     try {
-      // Browserless.io WebSocket 엔드포인트
-      const browserlessUrl = `wss://chrome.browserless.io?token=${apiKey}&--window-size=1280,800`;
+      // 고유 세션 ID 생성 (Browserless reconnect용)
+      const sessionId = `abk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      this.logger.log(`Browserless.io에 연결 중... (platform: ${platform})`);
+      // Browserless.io WebSocket 엔드포인트 (세션 ID 포함)
+      const browserlessUrl = `wss://chrome.browserless.io?token=${apiKey}&trackingId=${sessionId}&--window-size=1280,800`;
+
+      this.logger.log(`Browserless.io에 연결 중... (platform: ${platform}, sessionId: ${sessionId})`);
 
       // Playwright로 Browserless.io에 연결
       const browser = await chromium.connectOverCDP(browserlessUrl, {
@@ -71,6 +74,7 @@ export class BrowserlessService {
         viewport: { width: 1280, height: 800 },
         locale: 'ko-KR',
         timezoneId: 'Asia/Seoul',
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       });
 
       // 새 페이지 생성 및 로그인 페이지로 이동
@@ -81,17 +85,18 @@ export class BrowserlessService {
         naver: 'https://nid.naver.com/nidlogin.login',
       };
 
+      this.logger.log(`로그인 페이지로 이동 중: ${loginUrls[platform]}`);
+
       await page.goto(loginUrls[platform], {
-        waitUntil: 'domcontentloaded',
+        waitUntil: 'networkidle',
         timeout: 30000,
       });
 
-      // 세션 ID 생성
-      const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      this.logger.log(`현재 URL: ${page.url()}`);
 
-      // Browserless.io Live View URL
-      // Browserless.io의 live view는 세션 ID를 통해 접근
-      const liveViewUrl = `https://chrome.browserless.io/live?token=${apiKey}`;
+      // Browserless.io Live View URL - trackingId로 특정 세션 연결
+      // 방법 1: debugger 엔드포인트 사용
+      const liveViewUrl = `https://chrome.browserless.io/debugger?token=${apiKey}&trackingId=${sessionId}`;
 
       // 세션 저장
       const session: BrowserlessSession = {
@@ -105,7 +110,7 @@ export class BrowserlessService {
 
       this.sessions.set(sessionId, session);
 
-      this.logger.log(`세션 시작 성공: ${sessionId}`);
+      this.logger.log(`세션 시작 성공: ${sessionId}, liveViewUrl: ${liveViewUrl}`);
 
       return {
         success: true,
