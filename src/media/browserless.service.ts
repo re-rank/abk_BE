@@ -1,11 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { chromium, Browser, BrowserContext } from 'playwright';
+import { chromium, Browser, BrowserContext, CDPSession, Page } from 'playwright';
 
 interface BrowserlessSession {
   sessionId: string;
   browser: Browser;
   context: BrowserContext;
+  cdpSession: CDPSession;
+  page: Page;
   startTime: Date;
   platform: 'tistory' | 'naver';
   liveViewUrl: string;
@@ -56,11 +58,11 @@ export class BrowserlessService {
     }
 
     try {
-      // 고유 세션 ID 생성 (Browserless reconnect용)
+      // 고유 세션 ID 생성
       const sessionId = `abk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      // Browserless.io WebSocket 엔드포인트 (세션 ID 포함)
-      const browserlessUrl = `wss://chrome.browserless.io?token=${apiKey}&trackingId=${sessionId}&--window-size=1280,800`;
+      // Browserless.io WebSocket 엔드포인트 (Browserless 2.x는 trackingId 지원 안함)
+      const browserlessUrl = `wss://chrome.browserless.io?token=${apiKey}&--window-size=1280,800`;
 
       this.logger.log(`Browserless.io에 연결 중... (platform: ${platform}, sessionId: ${sessionId})`);
 
@@ -77,8 +79,25 @@ export class BrowserlessService {
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       });
 
-      // 새 페이지 생성 및 로그인 페이지로 이동
+      // 새 페이지 생성
       const page = await context.newPage();
+
+      // CDP 세션 생성하여 Browserless.liveURL 호출
+      const cdpSession = await context.newCDPSession(page);
+
+      // Browserless.io에서 liveURL 가져오기
+      let liveViewUrl = '';
+      try {
+        const liveUrlResponse = await cdpSession.send('Browserless.liveURL' as any, {
+          timeout: 600000, // 10분
+        });
+        liveViewUrl = (liveUrlResponse as any).liveURL || (liveUrlResponse as any).url || '';
+        this.logger.log(`LiveURL 가져오기 성공: ${liveViewUrl}`);
+      } catch (liveUrlError) {
+        this.logger.warn(`LiveURL 가져오기 실패, 대체 URL 사용: ${liveUrlError.message}`);
+        // 대체: Browserless.io sessions API로 세션 찾기
+        liveViewUrl = `https://chrome.browserless.io/live?token=${apiKey}`;
+      }
 
       const loginUrls = {
         tistory: 'https://www.tistory.com/auth/login',
@@ -94,15 +113,13 @@ export class BrowserlessService {
 
       this.logger.log(`현재 URL: ${page.url()}`);
 
-      // Browserless.io Live View URL - trackingId로 특정 세션 연결
-      // 방법 1: debugger 엔드포인트 사용
-      const liveViewUrl = `https://chrome.browserless.io/debugger?token=${apiKey}&trackingId=${sessionId}`;
-
       // 세션 저장
       const session: BrowserlessSession = {
         sessionId,
         browser,
         context,
+        cdpSession,
+        page,
         startTime: new Date(),
         platform,
         liveViewUrl,
@@ -153,9 +170,8 @@ export class BrowserlessService {
         };
       }
 
-      // 로그인 상태 확인
-      const pages = context.pages();
-      const page = pages[0];
+      // 로그인 상태 확인 - 저장된 page 사용
+      const page = session.page;
 
       if (!page) {
         return {
@@ -253,6 +269,10 @@ export class BrowserlessService {
 
     if (session) {
       try {
+        // CDP 세션 먼저 종료
+        if (session.cdpSession) {
+          await session.cdpSession.detach().catch(() => {});
+        }
         await session.context.close();
         await session.browser.close();
       } catch (error) {
@@ -278,12 +298,9 @@ export class BrowserlessService {
     }
 
     try {
-      const pages = session.context.pages();
-      const page = pages[0];
-
       return {
         active: true,
-        url: page?.url(),
+        url: session.page?.url(),
         platform: session.platform,
       };
     } catch {
