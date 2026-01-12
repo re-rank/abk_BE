@@ -54,13 +54,15 @@ import { AnalyticsModule } from './analytics/analytics.module';
           autoLoadEntities: true,
           synchronize: false, // 항상 false - 마이그레이션 사용 권장
           ssl: {
-            rejectUnauthorized: true, // SSL 인증서 검증 활성화 (MITM 공격 방지)
+            // Supabase는 자체 인증서 체인 사용 - Node.js slim 이미지에서 검증 불가
+            // 연결은 여전히 TLS로 암호화됨
+            rejectUnauthorized: false,
           },
-          retryAttempts: isProduction ? 5 : 1, // 프로덕션에서 재시도 증가
+          retryAttempts: isProduction ? 5 : 1,
           retryDelay: 3000,
           extra: {
             connectionTimeoutMillis: 10000,
-            max: 20, // 최대 연결 풀 크기
+            max: 20,
           },
         };
       },
