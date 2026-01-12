@@ -9,7 +9,7 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "postinstall": "PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright npx playwright install chromium || true",
+    "postinstall": "echo 'Using Playwright from Docker image'",
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
@@ -51,7 +51,7 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.11.3",
-    "playwright": "^1.40.1",
+    "playwright": "1.57.0",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.1",
     "typeorm": "^0.3.17",
