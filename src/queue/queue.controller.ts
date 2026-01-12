@@ -1,6 +1,6 @@
 import { Controller, Post, Body, Logger, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
-import { QueueService } from './queue.service';
+import { QueueService, PublishJobData, SnsJobData } from './queue.service';
 
 @ApiTags('Queue')
 @Controller('queue')
@@ -16,7 +16,7 @@ export class QueueController {
     @Body()
     body: {
       contentId: string;
-      platform: 'WORDPRESS' | 'MEDIUM';
+      platform: 'WORDPRESS' | 'MEDIUM' | 'NAVER_BLOG' | 'TISTORY';
       userId: string;
     },
   ) {
@@ -79,4 +79,3 @@ export class QueueController {
     }
   }
 }
-
