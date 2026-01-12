@@ -1868,22 +1868,22 @@ export class PlaywrightAuthService {
     title: string,
     content: string,
   ): Promise<{ success: boolean; postId?: string; postUrl?: string; error?: string; newCookies?: string }> {
-    const browser = await this.getBrowser();
-    const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      viewport: { width: 1280, height: 900 },
-    });
+    // 발행 전용 새 브라우저 생성 (서버리스 환경 안정성)
+    let browser: Browser | null = null;
+    let context: BrowserContext | null = null;
 
     try {
-      // 쿠키 복원
+      browser = await this.createFreshBrowser();
+      context = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        viewport: { width: 1280, height: 900 },
+      });
+
+      // 쿠키 복원 - 문자열 형식과 JSON 배열 형식 모두 지원
       let currentCookies = cookies;
-      const cookieArray = JSON.parse(currentCookies);
-      
-      // 쿠키 디버깅: 어떤 도메인의 쿠키가 있는지 확인
-      const domains = [...new Set(cookieArray.map((c: { domain: string }) => c.domain))];
-      this.logger.log(`저장된 쿠키 도메인: ${domains.join(', ')}`);
-      this.logger.log(`쿠키 개수: ${cookieArray.length}`);
-      
+      const cookieArray = this.parseCookieString(cookies, '.tistory.com');
+      this.logger.log(`쿠키 파싱 완료: ${cookieArray.length}개 쿠키`);
+
       await context.addCookies(cookieArray);
 
       const page = await context.newPage();
@@ -1896,7 +1896,8 @@ export class PlaywrightAuthService {
       }
 
       if (!blogName) {
-        await context.close();
+        try { await context?.close(); } catch { /* ignore */ }
+        try { await browser?.close(); } catch { /* ignore */ }
         return {
           success: false,
           error: '티스토리 블로그 URL이 필요합니다. 매체 연동에서 블로그 URL(예: https://myblog.tistory.com)을 확인해주세요.',
@@ -2495,7 +2496,9 @@ export class PlaywrightAuthService {
         ? `https://${blogName}.tistory.com/${postId}`
         : finalUrl;
 
-      await context.close();
+      // 정리: 컨텍스트와 브라우저 모두 종료
+      try { await context?.close(); } catch { /* ignore */ }
+      try { await browser?.close(); } catch { /* ignore */ }
 
       if (publishSuccess || postId) {
         this.logger.log(`티스토리 발행 완료: ${postUrl}`);
@@ -2515,7 +2518,9 @@ export class PlaywrightAuthService {
         };
       }
     } catch (error) {
-      await context.close();
+      // 정리: 컨텍스트와 브라우저 모두 종료
+      try { await context?.close(); } catch { /* ignore */ }
+      try { await browser?.close(); } catch { /* ignore */ }
       this.logger.error(`티스토리 발행 오류: ${error.message}`);
       return {
         success: false,
