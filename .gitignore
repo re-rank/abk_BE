@@ -43,3 +43,6 @@ lerna-debug.log*
 *.tmp
 *.temp
 
+
+# Claude temp files
+tmpclaude-*
