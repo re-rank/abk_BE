@@ -1491,45 +1491,53 @@ export class PlaywrightAuthService {
       await page.waitForTimeout(200);
       await page.keyboard.press('Backspace');
       await page.waitForTimeout(200);
-      
-      // 서식 초기화 - 취소선 버튼이 활성화되어 있을 때만 클릭하여 해제
+
+      // 서식 완전 초기화 - 모든 텍스트 서식 강제 해제
       try {
-        const formatReset = await frame.evaluate(() => {
-          let resetCount = 0;
-          
-          // aria-pressed="true" 인 서식 버튼만 클릭하여 해제
-          const formatButtons = document.querySelectorAll('[class*="se-toolbar"] button[aria-pressed="true"]');
-          formatButtons.forEach((btn: Element) => {
+        await frame.evaluate(() => {
+          // 1. 모든 활성화된 서식 버튼 해제
+          const activeButtons = document.querySelectorAll('[class*="se-toolbar"] button[aria-pressed="true"]');
+          activeButtons.forEach((btn: Element) => {
             (btn as HTMLButtonElement).click();
-            resetCount++;
           });
-          
-          // 취소선 버튼 명시적 확인 - 활성화 상태일 때만 클릭
-          const strikeBtnSelectors = [
-            'button[data-name="strike"][aria-pressed="true"]',
-            'button.se-text-strike[aria-pressed="true"]',
-            'button[class*="strike"][aria-pressed="true"]',
+
+          // 2. 취소선 버튼 명시적으로 찾아서 비활성화 확인
+          const strikeSelectors = [
+            'button[data-name="strike"]',
+            'button.se-text-strike',
+            'button[class*="strike"]',
+            'button[aria-label*="취소선"]',
+            'button[title*="취소선"]',
           ];
-          
-          for (const selector of strikeBtnSelectors) {
-            const strikeBtn = document.querySelector(selector);
+
+          for (const selector of strikeSelectors) {
+            const strikeBtn = document.querySelector(selector) as HTMLButtonElement;
             if (strikeBtn) {
-              (strikeBtn as HTMLButtonElement).click();
-              resetCount++;
+              // aria-pressed 상태 확인
+              const isPressed = strikeBtn.getAttribute('aria-pressed') === 'true' ||
+                               strikeBtn.classList.contains('active') ||
+                               strikeBtn.classList.contains('se-toolbar-button-active');
+              if (isPressed) {
+                strikeBtn.click();
+              }
               break;
             }
           }
-          
-          return resetCount;
+
+          // 3. 볼드, 이탤릭, 밑줄, 취소선 버튼 모두 확인하여 비활성화
+          const formatNames = ['bold', 'italic', 'underline', 'strike', 'strikethrough'];
+          formatNames.forEach(name => {
+            const btn = document.querySelector(`button[data-name="${name}"]`) as HTMLButtonElement;
+            if (btn && (btn.getAttribute('aria-pressed') === 'true' || btn.classList.contains('active'))) {
+              btn.click();
+            }
+          });
         });
-        
-        if (formatReset > 0) {
-          this.logger.log(`서식 버튼 ${formatReset}개 해제 완료`);
-        }
+        this.logger.log('제목 영역 서식 초기화 완료');
       } catch (e) {
         this.logger.log(`서식 초기화 시도: ${e.message}`);
       }
-      await page.waitForTimeout(200);
+      await page.waitForTimeout(300);
       
       // 제목 타이핑
       await page.keyboard.type(title, { delay: 30 });
@@ -1580,33 +1588,131 @@ export class PlaywrightAuthService {
       await page.waitForTimeout(100);
       await page.keyboard.press('Backspace');
       await page.waitForTimeout(100);
-      
-      // 본문 영역에서도 서식 버튼 초기화 - 활성화된 버튼만 해제
+
+      // 본문 영역에서 서식 완전 초기화 - 취소선 포함 모든 서식 해제
       try {
-        const bodyFormatReset = await frame.evaluate(() => {
-          let resetCount = 0;
-          
-          // aria-pressed="true" 인 서식 버튼만 클릭하여 해제
-          const formatButtons = document.querySelectorAll('[class*="se-toolbar"] button[aria-pressed="true"]');
-          formatButtons.forEach((btn: Element) => {
+        await frame.evaluate(() => {
+          // 1. 모든 활성화된 서식 버튼 해제
+          const activeButtons = document.querySelectorAll('[class*="se-toolbar"] button[aria-pressed="true"]');
+          activeButtons.forEach((btn: Element) => {
             (btn as HTMLButtonElement).click();
-            resetCount++;
           });
-          
-          return resetCount;
+
+          // 2. 취소선 버튼 명시적으로 찾아서 비활성화
+          const strikeSelectors = [
+            'button[data-name="strike"]',
+            'button.se-text-strike',
+            'button[class*="strike"]',
+            'button[aria-label*="취소선"]',
+            'button[title*="취소선"]',
+          ];
+
+          for (const selector of strikeSelectors) {
+            const strikeBtn = document.querySelector(selector) as HTMLButtonElement;
+            if (strikeBtn) {
+              const isPressed = strikeBtn.getAttribute('aria-pressed') === 'true' ||
+                               strikeBtn.classList.contains('active') ||
+                               strikeBtn.classList.contains('se-toolbar-button-active');
+              if (isPressed) {
+                strikeBtn.click();
+              }
+              break;
+            }
+          }
+
+          // 3. 볼드, 이탤릭, 밑줄, 취소선 버튼 모두 확인하여 비활성화
+          const formatNames = ['bold', 'italic', 'underline', 'strike', 'strikethrough'];
+          formatNames.forEach(name => {
+            const btn = document.querySelector(`button[data-name="${name}"]`) as HTMLButtonElement;
+            if (btn && (btn.getAttribute('aria-pressed') === 'true' || btn.classList.contains('active'))) {
+              btn.click();
+            }
+          });
         });
-        
-        if (bodyFormatReset > 0) {
-          this.logger.log(`본문 서식 버튼 ${bodyFormatReset}개 해제 완료`);
-        }
+        this.logger.log('본문 영역 서식 초기화 완료');
       } catch (e) {
         this.logger.log(`본문 서식 초기화 시도: ${e.message}`);
       }
-      await page.waitForTimeout(200);
-      
+      await page.waitForTimeout(300);
+
+      // 추가 서식 초기화: 키보드 단축키로 서식 제거 시도
+      // 네이버 에디터에서 취소선 등 서식이 남아있는 경우 대비
+      try {
+        // Ctrl+\ 또는 Ctrl+Space는 일부 에디터에서 서식 제거
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(100);
+
+        // 서식 제거 버튼 찾아서 클릭 시도
+        const formatCleared = await frame.evaluate(() => {
+          // "서식 제거" 또는 "서식 초기화" 버튼 찾기
+          const clearSelectors = [
+            'button[data-name="removeFormat"]',
+            'button[aria-label*="서식 제거"]',
+            'button[title*="서식 제거"]',
+            'button[aria-label*="서식 초기화"]',
+          ];
+
+          for (const selector of clearSelectors) {
+            const btn = document.querySelector(selector) as HTMLButtonElement;
+            if (btn) {
+              btn.click();
+              return true;
+            }
+          }
+          return false;
+        });
+
+        if (formatCleared) {
+          this.logger.log('서식 제거 버튼 클릭 완료');
+          await page.waitForTimeout(200);
+        }
+      } catch (e) {
+        this.logger.log(`추가 서식 초기화: ${e.message}`);
+      }
+
       // 본문 입력
       this.logger.log('본문 입력 중...');
-      
+
+      // 타이핑 직전 최종 서식 확인 - 취소선이 활성화되어 있으면 해제
+      try {
+        const strikeDeactivated = await frame.evaluate(() => {
+          // 모든 가능한 취소선 버튼 셀렉터
+          const selectors = [
+            'button[data-name="strike"]',
+            'button[data-name="strikethrough"]',
+            'button.se-text-strike',
+            'button[class*="strike"]',
+            'button[aria-label*="취소선"]',
+            'button[title*="취소선"]',
+            '.se-toolbar button[class*="strike"]',
+          ];
+
+          for (const selector of selectors) {
+            const btn = document.querySelector(selector) as HTMLButtonElement;
+            if (btn) {
+              // 다양한 방법으로 활성화 상태 확인
+              const isActive = btn.getAttribute('aria-pressed') === 'true' ||
+                              btn.classList.contains('active') ||
+                              btn.classList.contains('se-toolbar-button-active') ||
+                              btn.classList.contains('is-active') ||
+                              btn.classList.contains('on') ||
+                              btn.getAttribute('data-active') === 'true';
+
+              if (isActive) {
+                btn.click();
+                return `deactivated: ${selector}`;
+              }
+              return `checked: ${selector} (not active)`;
+            }
+          }
+          return 'no strike button found';
+        });
+        this.logger.log(`취소선 버튼 최종 확인: ${strikeDeactivated}`);
+      } catch (e) {
+        this.logger.log(`취소선 최종 확인 실패: ${e.message}`);
+      }
+      await page.waitForTimeout(100);
+
       // 본문 타이핑 - 줄바꿈 처리
       const lines = plainContent.split('\n');
       for (let i = 0; i < lines.length; i++) {

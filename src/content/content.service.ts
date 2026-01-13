@@ -4,6 +4,8 @@ import { Repository, LessThanOrEqual, In } from 'typeorm';
 import { Content, ContentStatus } from '../database/entities/content.entity';
 import { Project } from '../database/entities/project.entity';
 import { PublishLog, PublishStatus, PublishPlatform } from '../database/entities/publish-log.entity';
+import { Backlink } from '../database/entities/backlink.entity';
+import { SnsPost } from '../database/entities/sns-post.entity';
 import { AiService } from './ai.service';
 import { BacklinksService } from '../backlinks/backlinks.service';
 import { GenerateContentDto } from './dto/generate-content.dto';
@@ -24,6 +26,10 @@ export class ContentService {
     private projectRepository: Repository<Project>,
     @InjectRepository(PublishLog)
     private publishLogRepository: Repository<PublishLog>,
+    @InjectRepository(Backlink)
+    private backlinkRepository: Repository<Backlink>,
+    @InjectRepository(SnsPost)
+    private snsPostRepository: Repository<SnsPost>,
     private aiService: AiService,
     private backlinksService: BacklinksService,
   ) {}
@@ -150,7 +156,15 @@ export class ContentService {
 
   async remove(id: string, userId: string): Promise<void> {
     const content = await this.findOne(id, userId);
+
+    // 연관 데이터 먼저 삭제 (외래키 제약 조건 해결)
+    await this.backlinkRepository.delete({ contentId: id });
+    await this.publishLogRepository.delete({ contentId: id });
+    await this.snsPostRepository.delete({ contentId: id });
+
+    // 콘텐츠 삭제
     await this.contentRepository.remove(content);
+    this.logger.log(`Content deleted: ${id}`);
   }
 
   async updateStatus(id: string, status: ContentStatus): Promise<Content> {
