@@ -46,3 +46,7 @@ lerna-debug.log*
 
 # Claude temp files
 tmpclaude-*
+
+
+#Ignore cursor AI rules
+.cursor\rules\codacy.mdc
