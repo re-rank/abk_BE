@@ -5,17 +5,17 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
-} from 'typeorm';
-import { BacklinkPost } from './backlink-post.entity';
+} from "typeorm";
+import { BacklinkPost } from "./backlink-post.entity";
 
 export enum SiteType {
-  WORDPRESS = 'WORDPRESS',
-  CUSTOM = 'CUSTOM', // 범용 CSS 셀렉터 기반
+  WORDPRESS = "WORDPRESS",
+  CUSTOM = "CUSTOM", // 범용 CSS 셀렉터 기반
 }
 
-@Entity('authority_sites')
+@Entity("authority_sites")
 export class AuthoritySite {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn("uuid")
   id: string;
 
   @Column()
@@ -45,7 +45,7 @@ export class AuthoritySite {
 
   // 사이트 유형
   @Column({
-    type: 'varchar',
+    type: "varchar",
     default: SiteType.CUSTOM,
   })
   siteType: SiteType;
@@ -83,11 +83,11 @@ export class AuthoritySite {
   submitSelector: string;
 
   // 세션 쿠키 (로그인 유지용)
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: "text", nullable: true })
   sessionCookies: string;
 
   // 소유자
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: "uuid", nullable: true })
   userId: string;
 
   @OneToMany(() => BacklinkPost, (post) => post.authoritySite)

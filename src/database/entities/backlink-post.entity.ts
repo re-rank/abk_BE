@@ -5,37 +5,37 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
-} from 'typeorm';
-import { AuthoritySite } from './authority-site.entity';
+} from "typeorm";
+import { AuthoritySite } from "./authority-site.entity";
 
 export enum PostStatus {
-  PENDING = 'PENDING',
-  SUCCESS = 'SUCCESS',
-  FAILED = 'FAILED',
+  PENDING = "PENDING",
+  SUCCESS = "SUCCESS",
+  FAILED = "FAILED",
 }
 
-@Entity('backlink_posts')
+@Entity("backlink_posts")
 export class BacklinkPost {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn("uuid")
   id: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: "uuid" })
   authoritySiteId: string;
 
   @ManyToOne(() => AuthoritySite, (site) => site.backlinkPosts, {
-    onDelete: 'CASCADE',
+    onDelete: "CASCADE",
   })
-  @JoinColumn({ name: 'authoritySiteId' })
+  @JoinColumn({ name: "authoritySiteId" })
   authoritySite: AuthoritySite;
 
   @Column()
   title: string;
 
-  @Column({ type: 'text' })
+  @Column({ type: "text" })
   body: string;
 
   @Column({
-    type: 'varchar',
+    type: "varchar",
     default: PostStatus.PENDING,
   })
   status: PostStatus;
@@ -43,10 +43,10 @@ export class BacklinkPost {
   @Column({ nullable: true })
   publishedUrl?: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: "text", nullable: true })
   errorMessage?: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: "uuid", nullable: true })
   userId: string;
 
   @CreateDateColumn()

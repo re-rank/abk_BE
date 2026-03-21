@@ -1,11 +1,19 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
-import { chromium, Browser, BrowserContext } from 'playwright';
-import { AuthoritySite, SiteType } from '../database/entities/authority-site.entity';
-import { BacklinkPost, PostStatus } from '../database/entities/backlink-post.entity';
-import { CreateAuthoritySiteDto } from './dto/create-authority-site.dto';
-import { UpdateAuthoritySiteDto } from './dto/update-authority-site.dto';
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository, In } from "typeorm";
+import { chromium, Browser, BrowserContext } from "playwright";
+import * as fs from "fs";
+import { execSync } from "child_process";
+import {
+  AuthoritySite,
+  SiteType,
+} from "../database/entities/authority-site.entity";
+import {
+  BacklinkPost,
+  PostStatus,
+} from "../database/entities/backlink-post.entity";
+import { CreateAuthoritySiteDto } from "./dto/create-authority-site.dto";
+import { UpdateAuthoritySiteDto } from "./dto/update-authority-site.dto";
 
 @Injectable()
 export class BacklinkSitesService {
@@ -23,25 +31,32 @@ export class BacklinkSitesService {
   async findAll(userId: string): Promise<AuthoritySite[]> {
     return this.siteRepository.find({
       where: { userId },
-      order: { priority: 'DESC', createdAt: 'DESC' },
+      order: { priority: "DESC", createdAt: "DESC" },
     });
   }
 
-  async create(userId: string, dto: CreateAuthoritySiteDto): Promise<AuthoritySite> {
+  async create(
+    userId: string,
+    dto: CreateAuthoritySiteDto,
+  ): Promise<AuthoritySite> {
     const site = this.siteRepository.create({ ...dto, userId });
     return this.siteRepository.save(site);
   }
 
-  async update(id: string, userId: string, dto: UpdateAuthoritySiteDto): Promise<AuthoritySite> {
+  async update(
+    id: string,
+    userId: string,
+    dto: UpdateAuthoritySiteDto,
+  ): Promise<AuthoritySite> {
     const site = await this.siteRepository.findOne({ where: { id, userId } });
-    if (!site) throw new NotFoundException('사이트를 찾을 수 없습니다.');
+    if (!site) throw new NotFoundException("사이트를 찾을 수 없습니다.");
     Object.assign(site, dto);
     return this.siteRepository.save(site);
   }
 
   async remove(id: string, userId: string): Promise<void> {
     const site = await this.siteRepository.findOne({ where: { id, userId } });
-    if (!site) throw new NotFoundException('사이트를 찾을 수 없습니다.');
+    if (!site) throw new NotFoundException("사이트를 찾을 수 없습니다.");
     await this.siteRepository.remove(site);
   }
 
@@ -50,8 +65,8 @@ export class BacklinkSitesService {
   async findPosts(userId: string): Promise<BacklinkPost[]> {
     return this.postRepository.find({
       where: { userId },
-      relations: ['authoritySite'],
-      order: { createdAt: 'DESC' },
+      relations: ["authoritySite"],
+      order: { createdAt: "DESC" },
     });
   }
 
@@ -68,7 +83,7 @@ export class BacklinkSitesService {
     });
 
     if (sites.length === 0) {
-      throw new NotFoundException('선택된 사이트를 찾을 수 없습니다.');
+      throw new NotFoundException("선택된 사이트를 찾을 수 없습니다.");
     }
 
     const results: BacklinkPost[] = [];
@@ -119,26 +134,32 @@ export class BacklinkSitesService {
     try {
       const auth = Buffer.from(
         `${site.wordpressUsername}:${site.wordpressAppPassword}`,
-      ).toString('base64');
+      ).toString("base64");
 
       const response = await fetch(`${site.wordpressApiUrl}/wp/v2/posts`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           Authorization: `Basic ${auth}`,
         },
-        body: JSON.stringify({ title, content: body, status: 'publish' }),
+        body: JSON.stringify({ title, content: body, status: "publish" }),
       });
 
       if (!response.ok) {
         const errText = await response.text();
-        return { success: false, error: `WordPress API 오류: ${response.status} ${errText}` };
+        return {
+          success: false,
+          error: `WordPress API 오류: ${response.status} ${errText}`,
+        };
       }
 
       const data = await response.json();
       return { success: true, publishedUrl: data.link };
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 
@@ -156,13 +177,16 @@ export class BacklinkSitesService {
       browser = await this.createBrowser();
       context = await browser.newContext({
         userAgent:
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         viewport: { width: 1280, height: 900 },
       });
 
       // 1. 세션 쿠키 복원
       if (site.sessionCookies) {
-        const cookieArray = this.parseCookieString(site.sessionCookies, new URL(site.siteUrl).hostname);
+        const cookieArray = this.parseCookieString(
+          site.sessionCookies,
+          new URL(site.siteUrl).hostname,
+        );
         await context.addCookies(cookieArray);
       }
 
@@ -170,7 +194,10 @@ export class BacklinkSitesService {
 
       // 2. 로그인 필요시 로그인
       if (site.loginUrl && site.loginUsername && site.loginPassword) {
-        await page.goto(site.loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await page.goto(site.loginUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: 30000,
+        });
         await page.waitForTimeout(2000);
 
         if (site.loginUsernameSelector) {
@@ -187,23 +214,30 @@ export class BacklinkSitesService {
         // 로그인 후 쿠키 저장
         const cookies = await context.cookies();
         const updatedCookies = JSON.stringify(cookies);
-        await this.siteRepository.update(site.id, { sessionCookies: updatedCookies });
+        await this.siteRepository.update(site.id, {
+          sessionCookies: updatedCookies,
+        });
       }
 
       // 3. 글쓰기 페이지 이동
       if (!site.writeUrl) {
-        return { success: false, error: '글쓰기 URL이 설정되지 않았습니다.' };
+        return { success: false, error: "글쓰기 URL이 설정되지 않았습니다." };
       }
 
-      await page.goto(site.writeUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto(site.writeUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 30000,
+      });
       await page.waitForTimeout(3000);
 
       // 4. 제목 입력
       if (site.titleSelector) {
         const titleEl = await page.$(site.titleSelector);
         if (titleEl) {
-          const tagName = await titleEl.evaluate((el) => el.tagName.toLowerCase());
-          if (tagName === 'input' || tagName === 'textarea') {
+          const tagName = await titleEl.evaluate((el) =>
+            el.tagName.toLowerCase(),
+          );
+          if (tagName === "input" || tagName === "textarea") {
             await titleEl.fill(title);
           } else {
             // contenteditable 등
@@ -211,7 +245,10 @@ export class BacklinkSitesService {
             await page.keyboard.type(title);
           }
         } else {
-          return { success: false, error: `제목 셀렉터를 찾을 수 없음: ${site.titleSelector}` };
+          return {
+            success: false,
+            error: `제목 셀렉터를 찾을 수 없음: ${site.titleSelector}`,
+          };
         }
       }
 
@@ -219,14 +256,16 @@ export class BacklinkSitesService {
       if (site.bodySelector) {
         const bodyEl = await page.$(site.bodySelector);
         if (bodyEl) {
-          const tagName = await bodyEl.evaluate((el) => el.tagName.toLowerCase());
-          if (tagName === 'textarea') {
+          const tagName = await bodyEl.evaluate((el) =>
+            el.tagName.toLowerCase(),
+          );
+          if (tagName === "textarea") {
             await bodyEl.fill(body);
-          } else if (tagName === 'iframe') {
+          } else if (tagName === "iframe") {
             // iframe 기반 에디터
             const frame = await bodyEl.contentFrame();
             if (frame) {
-              const frameBody = await frame.$('body');
+              const frameBody = await frame.$("body");
               if (frameBody) {
                 await frameBody.click();
                 await frame.evaluate((html) => {
@@ -242,7 +281,10 @@ export class BacklinkSitesService {
             }, body);
           }
         } else {
-          return { success: false, error: `본문 셀렉터를 찾을 수 없음: ${site.bodySelector}` };
+          return {
+            success: false,
+            error: `본문 셀렉터를 찾을 수 없음: ${site.bodySelector}`,
+          };
         }
       }
 
@@ -258,19 +300,27 @@ export class BacklinkSitesService {
 
       return { success: true, publishedUrl: currentUrl };
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     } finally {
-      try { await context?.close(); } catch { /* ignore */ }
-      try { await browser?.close(); } catch { /* ignore */ }
+      try {
+        await context?.close();
+      } catch {
+        /* ignore */
+      }
+      try {
+        await browser?.close();
+      } catch {
+        /* ignore */
+      }
     }
   }
 
   // ── 유틸리티 ──
 
   private async createBrowser(): Promise<Browser> {
-    const fs = require('fs');
-    const { execSync } = require('child_process');
-
     let execPath: string | undefined = undefined;
 
     if (process.env.CHROMIUM_PATH && fs.existsSync(process.env.CHROMIUM_PATH)) {
@@ -280,8 +330,8 @@ export class BacklinkSitesService {
     if (!execPath) {
       try {
         const systemChromium = execSync(
-          'which chromium || which chromium-browser || which google-chrome',
-          { encoding: 'utf-8' },
+          "which chromium || which chromium-browser || which google-chrome",
+          { encoding: "utf-8" },
         ).trim();
         if (systemChromium && fs.existsSync(systemChromium)) {
           execPath = systemChromium;
@@ -295,14 +345,14 @@ export class BacklinkSitesService {
       headless: true,
       executablePath: execPath,
       args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--disable-software-rasterizer',
-        '--disable-extensions',
-        '--disable-background-networking',
-        '--no-first-run',
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--disable-software-rasterizer",
+        "--disable-extensions",
+        "--disable-background-networking",
+        "--no-first-run",
       ],
     });
   }
@@ -313,25 +363,25 @@ export class BacklinkSitesService {
   ): Array<{ name: string; value: string; domain: string; path: string }> {
     const trimmed = cookies.trim();
 
-    if (trimmed.startsWith('[')) {
+    if (trimmed.startsWith("[")) {
       try {
         return JSON.parse(trimmed);
       } catch {
-        this.logger.warn('쿠키 JSON 파싱 실패, 문자열 형식으로 시도');
+        this.logger.warn("쿠키 JSON 파싱 실패, 문자열 형식으로 시도");
       }
     }
 
     return trimmed
-      .split(';')
+      .split(";")
       .map((pair) => pair.trim())
-      .filter((pair) => pair.includes('='))
+      .filter((pair) => pair.includes("="))
       .map((pair) => {
-        const [name, ...rest] = pair.split('=');
+        const [name, ...rest] = pair.split("=");
         return {
           name: name.trim(),
-          value: rest.join('=').trim(),
+          value: rest.join("=").trim(),
           domain,
-          path: '/',
+          path: "/",
         };
       });
   }
