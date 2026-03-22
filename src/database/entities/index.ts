@@ -9,4 +9,5 @@ export * from './media-connection.entity';
 export * from './media-analytics.entity';
 export * from './keyword-ranking.entity';
 export * from './traffic-snapshot.entity';
+export * from './backlink-post.entity';
 
