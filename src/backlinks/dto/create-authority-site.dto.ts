@@ -27,6 +27,21 @@ export class CreateAuthoritySiteDto {
   @IsEnum(SiteType)
   siteType?: SiteType;
 
+  @ApiPropertyOptional({ description: "WordPress REST API URL" })
+  @IsOptional()
+  @IsString()
+  wordpressApiUrl?: string;
+
+  @ApiPropertyOptional({ description: "WordPress 사용자명" })
+  @IsOptional()
+  @IsString()
+  wordpressUsername?: string;
+
+  @ApiPropertyOptional({ description: "WordPress Application Password" })
+  @IsOptional()
+  @IsString()
+  wordpressAppPassword?: string;
+
   @ApiPropertyOptional({ description: "로그인 페이지 URL" })
   @IsOptional()
   @IsString()

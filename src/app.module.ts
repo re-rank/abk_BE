@@ -22,15 +22,15 @@ import { AnalyticsModule } from './analytics/analytics.module';
       envFilePath: '.env',
     }),
 
-    // TypeORM - Supabase PostgreSQL (선택적 - 비밀번호 확인 필요)
+    // TypeORM - PostgreSQL (DATABASE_URL 또는 SUPABASE_DATABASE_URL)
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
-        const dbUrl = configService.get<string>('SUPABASE_DATABASE_URL');
-        
+        const dbUrl = configService.get<string>('DATABASE_URL') || configService.get<string>('SUPABASE_DATABASE_URL');
+
         // 데이터베이스 URL이 없으면 경고 출력하고 로컬로 폴백
         if (!dbUrl) {
-          console.warn('⚠️  SUPABASE_DATABASE_URL not configured. Database features will be disabled.');
+          console.warn('⚠️  DATABASE_URL not configured. Database features will be disabled.');
           // 연결하지 않음 - autoLoadEntities만 활성화
           return {
             type: 'postgres',
