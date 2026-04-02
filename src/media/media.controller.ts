@@ -10,7 +10,13 @@ import {
   Res,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery, ApiBody } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiQuery,
+  ApiBody,
+} from '@nestjs/swagger';
 import { Response } from 'express';
 import { MediaService } from './media.service';
 import { CreateMediaConnectionDto } from './dto/create-media-connection.dto';
@@ -95,15 +101,23 @@ export class MediaController {
   @Post('manual-login/save-cookies')
   @ApiOperation({
     summary: '쿠키 직접 저장 (수동 로그인)',
-    description: '브라우저에서 직접 복사한 쿠키를 저장합니다. 개발자도구 > Application > Cookies에서 복사하세요.',
+    description:
+      '브라우저에서 직접 복사한 쿠키를 저장합니다. 개발자도구 > Application > Cookies에서 복사하세요.',
   })
   @ApiBody({
     schema: {
       type: 'object',
       properties: {
         projectId: { type: 'string', description: '프로젝트 ID' },
-        platform: { type: 'string', enum: ['tistory', 'naver'], description: '플랫폼' },
-        cookies: { type: 'string', description: '쿠키 문자열 (JSON 배열 또는 key=value; 형식)' },
+        platform: {
+          type: 'string',
+          enum: ['tistory', 'naver'],
+          description: '플랫폼',
+        },
+        cookies: {
+          type: 'string',
+          description: '쿠키 문자열 (JSON 배열 또는 key=value; 형식)',
+        },
         blogName: { type: 'string', description: '블로그 이름 (선택)' },
         blogUrl: { type: 'string', description: '블로그 URL (선택)' },
       },
@@ -145,7 +159,9 @@ export class MediaController {
       // 2. Chrome DevTools 탭 구분 형식 (복사 시 탭으로 구분됨)
       // 형식: name\tvalue\tdomain\tpath\t... (각 행이 하나의 쿠키)
       if (normalizedCookies.includes('\t')) {
-        const lines = normalizedCookies.split('\n').filter(line => line.trim());
+        const lines = normalizedCookies
+          .split('\n')
+          .filter((line) => line.trim());
         const cookiePairs: string[] = [];
 
         for (const line of lines) {
@@ -171,17 +187,21 @@ export class MediaController {
     // 티스토리인 경우 블로그 URL이 없으면 자동 추출 시도
     let finalBlogUrl = blogUrl;
     if (platform === 'tistory' && !blogUrl) {
-      const extractedUrl = await this.mediaService.extractTistoryBlogUrl(normalizedCookies);
+      const extractedUrl =
+        await this.mediaService.extractTistoryBlogUrl(normalizedCookies);
       if (extractedUrl) {
         finalBlogUrl = extractedUrl;
       }
     }
 
     // 계정 정보
-    const accountInfo = blogName || finalBlogUrl ? {
-      name: blogName || '',
-      url: finalBlogUrl,
-    } : undefined;
+    const accountInfo =
+      blogName || finalBlogUrl
+        ? {
+            name: blogName || '',
+            url: finalBlogUrl,
+          }
+        : undefined;
 
     // 쿠키 저장
     const result = await this.mediaService.updateCookies(
@@ -212,14 +232,16 @@ export class MediaController {
     schema: {
       type: 'object',
       properties: {
-        platform: { type: 'string', enum: ['tistory', 'naver'], description: '플랫폼' },
+        platform: {
+          type: 'string',
+          enum: ['tistory', 'naver'],
+          description: '플랫폼',
+        },
       },
       required: ['platform'],
     },
   })
-  getCookieInstructions(
-    @Body('platform') platform: 'tistory' | 'naver',
-  ) {
+  getCookieInstructions(@Body('platform') platform: 'tistory' | 'naver') {
     const instructions = {
       tistory: {
         loginUrl: 'https://www.tistory.com/auth/login',
@@ -260,13 +282,18 @@ export class MediaController {
   @Post('remote-browser/start')
   @ApiOperation({
     summary: '원격 브라우저 세션 시작',
-    description: 'Browserless.io를 통해 원격 브라우저를 열고 로그인 페이지로 이동합니다.',
+    description:
+      'Browserless.io를 통해 원격 브라우저를 열고 로그인 페이지로 이동합니다.',
   })
   @ApiBody({
     schema: {
       type: 'object',
       properties: {
-        platform: { type: 'string', enum: ['tistory', 'naver'], description: '플랫폼' },
+        platform: {
+          type: 'string',
+          enum: ['tistory', 'naver'],
+          description: '플랫폼',
+        },
       },
       required: ['platform'],
     },
@@ -294,7 +321,11 @@ export class MediaController {
       properties: {
         sessionId: { type: 'string', description: '세션 ID' },
         projectId: { type: 'string', description: '프로젝트 ID' },
-        platform: { type: 'string', enum: ['tistory', 'naver'], description: '플랫폼' },
+        platform: {
+          type: 'string',
+          enum: ['tistory', 'naver'],
+          description: '플랫폼',
+        },
       },
       required: ['sessionId', 'projectId', 'platform'],
     },
@@ -396,7 +427,8 @@ export class MediaController {
     @Query('token') token: string,
     @Res() res: Response,
   ) {
-    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173';
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173';
 
     // JWT 토큰 검증
     let userId: string;
@@ -408,32 +440,41 @@ export class MediaController {
       console.error('❌ JWT 토큰 검증 실패');
       return res.redirect(`${frontendUrl}/login?error=unauthorized`);
     }
-    
+
     // DB에서 프로젝트의 LinkedIn 연동 정보 가져오기
     const linkedinConnection = await this.mediaService.findByProjectAndPlatform(
       projectId,
       MediaPlatform.LINKEDIN,
       userId,
     );
-    
+
     if (!linkedinConnection?.clientId) {
       console.error('❌ LinkedIn Client ID가 설정되지 않았습니다.');
-      return res.redirect(`${frontendUrl}/projects/${projectId}?linkedin_error=no_client_id`);
+      return res.redirect(
+        `${frontendUrl}/projects/${projectId}?linkedin_error=no_client_id`,
+      );
     }
-    
+
     console.log('✅ LinkedIn Client ID 확인됨');
-    
+
     // state에 userId와 projectId를 JSON으로 인코딩
-    const state = Buffer.from(JSON.stringify({
-      userId,
-      projectId
-    })).toString('base64');
-    
+    const state = Buffer.from(
+      JSON.stringify({
+        userId,
+        projectId,
+      }),
+    ).toString('base64');
+
     // 콜백 URL 설정
-    const backendUrl = this.configService.get<string>('BACKEND_URL') || 'http://localhost:3000';
+    const backendUrl =
+      this.configService.get<string>('BACKEND_URL') || 'http://localhost:3000';
     const redirectUri = `${backendUrl}/api/media/linkedin/callback`;
-    
-    const authUrl = this.linkedinService.getAuthorizationUrl(state, linkedinConnection.clientId, redirectUri);
+
+    const authUrl = this.linkedinService.getAuthorizationUrl(
+      state,
+      linkedinConnection.clientId,
+      redirectUri,
+    );
     return res.redirect(authUrl);
   }
 
@@ -441,34 +482,44 @@ export class MediaController {
   @Get('linkedin/callback')
   @ApiOperation({ summary: 'LinkedIn OAuth 콜백' })
   @ApiQuery({ name: 'code', required: true, description: 'Authorization Code' })
-  @ApiQuery({ name: 'state', required: true, description: 'State (userId + projectId)' })
+  @ApiQuery({
+    name: 'state',
+    required: true,
+    description: 'State (userId + projectId)',
+  })
   async linkedInCallback(
     @Query('code') code: string,
     @Query('state') state: string,
     @Res() res: Response,
   ) {
-    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173';
-    
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173';
+
     try {
       // state 디코딩
       const { userId, projectId } = JSON.parse(
-        Buffer.from(state, 'base64').toString('utf-8')
+        Buffer.from(state, 'base64').toString('utf-8'),
       );
 
       // DB에서 프로젝트의 LinkedIn 연동 정보 가져오기 (Client ID/Secret)
-      const linkedinConnection = await this.mediaService.findByProjectAndPlatform(
-        projectId,
-        MediaPlatform.LINKEDIN,
-        userId,
-      );
-      
+      const linkedinConnection =
+        await this.mediaService.findByProjectAndPlatform(
+          projectId,
+          MediaPlatform.LINKEDIN,
+          userId,
+        );
+
       if (!linkedinConnection?.clientId || !linkedinConnection?.clientSecret) {
         console.error('❌ LinkedIn Client ID/Secret이 DB에 없습니다.');
-        return res.redirect(`${frontendUrl}/projects/${projectId}?linkedin_error=no_credentials`);
+        return res.redirect(
+          `${frontendUrl}/projects/${projectId}?linkedin_error=no_credentials`,
+        );
       }
 
       // 콜백 URL 설정
-      const backendUrl = this.configService.get<string>('BACKEND_URL') || 'http://localhost:3000';
+      const backendUrl =
+        this.configService.get<string>('BACKEND_URL') ||
+        'http://localhost:3000';
       const redirectUri = `${backendUrl}/api/media/linkedin/callback`;
 
       // 1. Authorization Code → Access Token (DB의 Client ID/Secret 사용)
@@ -478,10 +529,12 @@ export class MediaController {
         linkedinConnection.clientSecret,
         redirectUri,
       );
-      
+
       if (!tokenData) {
         // 실패 시 프론트엔드로 redirect with error
-        return res.redirect(`${frontendUrl}/projects/${projectId}?linkedin_error=token_failed`);
+        return res.redirect(
+          `${frontendUrl}/projects/${projectId}?linkedin_error=token_failed`,
+        );
       }
 
       // 2. DB에 저장
@@ -500,7 +553,9 @@ export class MediaController {
       }
 
       // 성공 시 프론트엔드로 redirect
-      return res.redirect(`${frontendUrl}/projects/${projectId}?linkedin_success=true`);
+      return res.redirect(
+        `${frontendUrl}/projects/${projectId}?linkedin_success=true`,
+      );
     } catch (error) {
       console.error('❌ LinkedIn OAuth 콜백 오류:', error);
       // 오류 시 프론트엔드로 redirect with error
@@ -524,8 +579,11 @@ export class MediaController {
     @CurrentUser() user: AuthUser,
   ): Promise<{ success: boolean; message: string }> {
     // 1. Connection 조회
-    const connection = await this.mediaService.findOne(connectionId, user.userId);
-    
+    const connection = await this.mediaService.findOne(
+      connectionId,
+      user.userId,
+    );
+
     if (!connection.refreshToken) {
       return {
         success: false,
@@ -534,8 +592,10 @@ export class MediaController {
     }
 
     // 2. Token 갱신
-    const tokenData = await this.linkedinService.refreshAccessToken(connection.refreshToken);
-    
+    const tokenData = await this.linkedinService.refreshAccessToken(
+      connection.refreshToken,
+    );
+
     if (!tokenData) {
       return {
         success: false,
@@ -549,7 +609,9 @@ export class MediaController {
       connection.refreshToken = tokenData.refresh_token;
     }
     if (tokenData.expires_in) {
-      connection.tokenExpiresAt = new Date(Date.now() + tokenData.expires_in * 1000);
+      connection.tokenExpiresAt = new Date(
+        Date.now() + tokenData.expires_in * 1000,
+      );
     }
     await this.mediaService['mediaConnectionRepository'].save(connection);
 

@@ -29,7 +29,9 @@ import { AnalyticsModule } from './analytics/analytics.module';
         const dbUrl = configService.get<string>('DATABASE_URL');
 
         if (!dbUrl) {
-          console.warn('⚠️  DATABASE_URL not configured. Database features will be disabled.');
+          console.warn(
+            '⚠️  DATABASE_URL not configured. Database features will be disabled.',
+          );
           return {
             type: 'postgres',
             host: 'localhost',
@@ -73,7 +75,9 @@ import { AnalyticsModule } from './analytics/analytics.module';
 
         // Redis 설정이 없으면 기본 로컬 Redis 사용 시도
         if (!redisUrl) {
-          console.warn('⚠️  REDIS_URL not configured. Queue features will use local Redis or be disabled.');
+          console.warn(
+            '⚠️  REDIS_URL not configured. Queue features will use local Redis or be disabled.',
+          );
           return {
             connection: {
               host: 'localhost',
@@ -109,4 +113,3 @@ import { AnalyticsModule } from './analytics/analytics.module';
   ],
 })
 export class AppModule {}
-
