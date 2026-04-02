@@ -121,6 +121,9 @@ export class BacklinkSitesService {
     if (site.siteType === SiteType.WORDPRESS && site.wordpressApiUrl) {
       return this.publishViaWordPressApi(site, title, body);
     }
+    if (site.siteType === SiteType.TISTORY) {
+      return this.publishViaTistory(site, title, body);
+    }
     return this.publishViaPlaywright(site, title, body);
   }
 
@@ -299,6 +302,231 @@ export class BacklinkSitesService {
       const currentUrl = page.url();
 
       return { success: true, publishedUrl: currentUrl };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    } finally {
+      try {
+        await context?.close();
+      } catch {
+        /* ignore */
+      }
+      try {
+        await browser?.close();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  // ── 티스토리 Playwright 글 등록 ──
+
+  private async publishViaTistory(
+    site: AuthoritySite,
+    title: string,
+    body: string,
+  ): Promise<{ success: boolean; publishedUrl?: string; error?: string }> {
+    let browser: Browser | null = null;
+    let context: BrowserContext | null = null;
+
+    try {
+      browser = await this.createBrowser();
+      context = await browser.newContext({
+        userAgent:
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        viewport: { width: 1280, height: 900 },
+      });
+
+      // 1. 세션 쿠키 복원
+      if (site.sessionCookies) {
+        try {
+          const cookies = JSON.parse(site.sessionCookies);
+          await context.addCookies(cookies);
+        } catch {
+          this.logger.warn("티스토리 세션 쿠키 파싱 실패");
+        }
+      }
+
+      const page = await context.newPage();
+
+      // 2. 글쓰기 페이지 이동
+      const writeUrl =
+        site.writeUrl || `${site.siteUrl.replace(/\/$/, "")}/manage/newpost`;
+      await page.goto(writeUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 30000,
+      });
+      await page.waitForTimeout(3000);
+
+      // 3. 로그인 필요 여부 확인 (카카오 로그인 페이지로 리다이렉트 체크)
+      const currentUrl = page.url();
+      const needsLogin =
+        currentUrl.includes("accounts.kakao.com") ||
+        currentUrl.includes("tistory.com/auth/login");
+
+      if (needsLogin) {
+        if (!site.loginUsername || !site.loginPassword) {
+          return {
+            success: false,
+            error: "카카오 로그인 정보가 설정되지 않았습니다.",
+          };
+        }
+
+        // 티스토리 로그인 페이지인 경우 카카오 로그인 버튼 클릭
+        if (currentUrl.includes("tistory.com/auth/login")) {
+          const kakaoBtn = await page.$(".btn_login.link_kakao_id");
+          if (kakaoBtn) {
+            await kakaoBtn.click();
+            await page.waitForTimeout(3000);
+          }
+        }
+
+        // 카카오 로그인 폼
+        const emailInput = await page.$(
+          'input[name="loginId"], input[name="loginKey"], #loginId--1',
+        );
+        if (emailInput) {
+          await emailInput.click();
+          await emailInput.fill(site.loginUsername);
+        }
+
+        const pwInput = await page.$('input[name="password"], #password--2');
+        if (pwInput) {
+          await pwInput.click();
+          await pwInput.fill(site.loginPassword);
+        }
+
+        // 로그인 버튼 클릭
+        const loginBtn = await page.$(
+          'button[type="submit"], .btn_g.btn_confirm.submit',
+        );
+        if (loginBtn) {
+          await loginBtn.click();
+          await page.waitForTimeout(5000);
+        }
+
+        // 로그인 후 쿠키 저장
+        const cookies = await context.cookies();
+        await this.siteRepository.update(site.id, {
+          sessionCookies: JSON.stringify(cookies),
+        });
+
+        // 글쓰기 페이지로 다시 이동
+        const afterLoginUrl = page.url();
+        if (!afterLoginUrl.includes("/manage/newpost")) {
+          await page.goto(writeUrl, {
+            waitUntil: "domcontentloaded",
+            timeout: 30000,
+          });
+          await page.waitForTimeout(3000);
+        }
+      }
+
+      // 4. 제목 입력 - 티스토리 에디터
+      const titleInput = await page.$(
+        '#post-title-inp, .tit_post input, input[placeholder*="제목"]',
+      );
+      if (titleInput) {
+        await titleInput.click();
+        await titleInput.fill(title);
+      } else {
+        return {
+          success: false,
+          error: "티스토리 제목 입력 필드를 찾을 수 없습니다.",
+        };
+      }
+
+      await page.waitForTimeout(1000);
+
+      // 5. 본문 입력 - 티스토리 에디터 (iframe 또는 contenteditable)
+      let bodyInserted = false;
+
+      // 방법 1: CodeMirror / contenteditable 기반 에디터
+      const editorArea = await page.$(
+        "#tinymce, .mce-content-body, #content, .editor-content",
+      );
+      if (editorArea) {
+        await editorArea.click();
+        await editorArea.evaluate((el, html) => {
+          (el as HTMLElement).innerHTML = html;
+        }, body);
+        bodyInserted = true;
+      }
+
+      // 방법 2: iframe 기반 에디터
+      if (!bodyInserted) {
+        const iframe = await page.$("iframe#editor-tistory, iframe.editor");
+        if (iframe) {
+          const frame = await iframe.contentFrame();
+          if (frame) {
+            const frameBody = await frame.$("body");
+            if (frameBody) {
+              await frameBody.click();
+              await frame.evaluate((html) => {
+                document.body.innerHTML = html;
+              }, body);
+              bodyInserted = true;
+            }
+          }
+        }
+      }
+
+      // 방법 3: 텍스트에어리어 (HTML 모드)
+      if (!bodyInserted) {
+        const textarea = await page.$(
+          "textarea#content, textarea.editor-textarea",
+        );
+        if (textarea) {
+          await textarea.fill(body);
+          bodyInserted = true;
+        }
+      }
+
+      if (!bodyInserted) {
+        return {
+          success: false,
+          error: "티스토리 본문 에디터를 찾을 수 없습니다.",
+        };
+      }
+
+      await page.waitForTimeout(1000);
+
+      // 6. 발행 버튼 클릭
+      // 먼저 "완료" 또는 "발행" 버튼 찾기
+      const publishBtn = await page.$(
+        '#publish-layer-btn, button.btn_publish, .btn_save, button[data-name="publish"]',
+      );
+      if (publishBtn) {
+        await publishBtn.click();
+        await page.waitForTimeout(2000);
+
+        // 발행 확인 레이어가 뜨는 경우 (공개 발행 확인 버튼)
+        const confirmBtn = await page.$(
+          "#publish-btn, .btn_ok, button.btn_default",
+        );
+        if (confirmBtn) {
+          await confirmBtn.click();
+          await page.waitForTimeout(5000);
+        }
+      } else {
+        return {
+          success: false,
+          error: "티스토리 발행 버튼을 찾을 수 없습니다.",
+        };
+      }
+
+      // 7. 발행 후 쿠키 저장
+      const finalCookies = await context.cookies();
+      await this.siteRepository.update(site.id, {
+        sessionCookies: JSON.stringify(finalCookies),
+      });
+
+      // 8. 발행된 URL 수집
+      const publishedUrl = page.url();
+
+      return { success: true, publishedUrl };
     } catch (err) {
       return {
         success: false,
