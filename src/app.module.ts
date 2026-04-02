@@ -22,16 +22,14 @@ import { AnalyticsModule } from './analytics/analytics.module';
       envFilePath: '.env',
     }),
 
-    // TypeORM - PostgreSQL (DATABASE_URL 또는 SUPABASE_DATABASE_URL)
+    // TypeORM - PostgreSQL (Neon DB)
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
-        const dbUrl = configService.get<string>('DATABASE_URL') || configService.get<string>('SUPABASE_DATABASE_URL');
+        const dbUrl = configService.get<string>('DATABASE_URL');
 
-        // 데이터베이스 URL이 없으면 경고 출력하고 로컬로 폴백
         if (!dbUrl) {
           console.warn('⚠️  DATABASE_URL not configured. Database features will be disabled.');
-          // 연결하지 않음 - autoLoadEntities만 활성화
           return {
             type: 'postgres',
             host: 'localhost',
@@ -41,21 +39,19 @@ import { AnalyticsModule } from './analytics/analytics.module';
             database: 'abk_dev',
             autoLoadEntities: true,
             synchronize: false,
-            retryAttempts: 0, // 재시도 안함
+            retryAttempts: 0,
             retryDelay: 0,
           };
         }
 
-        console.log('🔗 Attempting to connect to Supabase PostgreSQL...');
+        console.log('🔗 Attempting to connect to Neon PostgreSQL...');
         const isProduction = configService.get('NODE_ENV') === 'production';
         return {
           type: 'postgres',
           url: dbUrl,
           autoLoadEntities: true,
-          synchronize: false, // 항상 false - 마이그레이션 사용 권장
+          synchronize: false,
           ssl: {
-            // Supabase는 자체 인증서 체인 사용 - Node.js slim 이미지에서 검증 불가
-            // 연결은 여전히 TLS로 암호화됨
             rejectUnauthorized: false,
           },
           retryAttempts: isProduction ? 5 : 1,

@@ -14,7 +14,7 @@ export class Project {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // Supabase Auth의 user ID (auth.users.id) - 외래 키 없이 저장
+  // user ID - 외래 키 없이 저장
   @Column({ type: 'uuid', nullable: true })
   userId: string | null;
 

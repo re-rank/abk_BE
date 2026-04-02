@@ -37,7 +37,7 @@ export class MediaConnection {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // Supabase Auth의 user ID (보안 검증용)
+  // user ID (보안 검증용)
   @Column({ type: 'uuid' })
   userId: string;
 

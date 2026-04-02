@@ -20,7 +20,7 @@ import { Public } from '../auth/decorators/public.decorator';
 import { PlaywrightAuthService } from './playwright-auth.service';
 import { BrowserlessService } from './browserless.service';
 import { LinkedinService } from '../sns/linkedin.service';
-import { createClient } from '@supabase/supabase-js';
+import { JwtService } from '@nestjs/jwt';
 import { MediaPlatform } from '../database/entities/media-connection.entity';
 
 interface AuthUser {
@@ -40,6 +40,7 @@ export class MediaController {
     private readonly browserlessService: BrowserlessService,
     private readonly linkedinService: LinkedinService,
     private readonly configService: ConfigService,
+    private readonly jwtService: JwtService,
   ) {}
 
   @Get()
@@ -396,40 +397,23 @@ export class MediaController {
     @Res() res: Response,
   ) {
     const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173';
-    
-    // 토큰 검증을 위해 Supabase에서 사용자 정보 조회
-    const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
-    const supabaseServiceKey = this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY');
-    
-    // 디버깅 로그
-    console.log('🔍 SUPABASE_URL:', supabaseUrl ? '설정됨' : '없음');
-    console.log('🔍 SUPABASE_SERVICE_ROLE_KEY:', supabaseServiceKey ? '설정됨 (길이: ' + supabaseServiceKey.length + ')' : '없음');
-    
-    if (!supabaseUrl || !supabaseServiceKey) {
-      console.error('Supabase 환경변수가 설정되지 않았습니다.');
-      console.error('현재 .env 경로:', process.cwd());
-      return res.redirect(`${frontendUrl}/login?error=config_error`);
-    }
-    
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    
-    console.log('🔍 토큰 길이:', token ? token.length : 'token 없음');
-    
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    
-    if (error || !user) {
-      console.error('❌ Supabase 토큰 검증 실패:', error?.message || 'user가 null');
-      console.error('❌ 에러 상세:', JSON.stringify(error, null, 2));
+
+    // JWT 토큰 검증
+    let userId: string;
+    try {
+      const payload = this.jwtService.verify(token);
+      userId = payload.sub;
+      console.log('✅ 토큰 검증 성공, userId:', userId);
+    } catch {
+      console.error('❌ JWT 토큰 검증 실패');
       return res.redirect(`${frontendUrl}/login?error=unauthorized`);
     }
-    
-    console.log('✅ 토큰 검증 성공, userId:', user.id);
     
     // DB에서 프로젝트의 LinkedIn 연동 정보 가져오기
     const linkedinConnection = await this.mediaService.findByProjectAndPlatform(
       projectId,
       MediaPlatform.LINKEDIN,
-      user.id,
+      userId,
     );
     
     if (!linkedinConnection?.clientId) {
@@ -440,9 +424,9 @@ export class MediaController {
     console.log('✅ LinkedIn Client ID 확인됨');
     
     // state에 userId와 projectId를 JSON으로 인코딩
-    const state = Buffer.from(JSON.stringify({ 
-      userId: user.id, 
-      projectId 
+    const state = Buffer.from(JSON.stringify({
+      userId,
+      projectId
     })).toString('base64');
     
     // 콜백 URL 설정
