@@ -18,7 +18,7 @@ interface TokenPayload {
   name?: string;
 }
 
-interface AuthTokens {
+export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
 }
