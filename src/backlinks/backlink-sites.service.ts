@@ -425,9 +425,17 @@ export class BacklinkSitesService {
       }
 
       // 4. 제목 입력 - 티스토리 에디터
-      const titleInput = await page.$(
-        '#post-title-inp, .tit_post input, input[placeholder*="제목"]',
-      );
+      const titleSelectors = [
+        '#post-title-inp',
+        'input[name="title"]',
+        '.tit_post input',
+        'input[placeholder*="제목"]',
+      ];
+      let titleInput = null;
+      for (const sel of titleSelectors) {
+        titleInput = await page.$(sel);
+        if (titleInput) break;
+      }
       if (titleInput) {
         await titleInput.click();
         await titleInput.fill(title);
@@ -443,72 +451,130 @@ export class BacklinkSitesService {
       // 5. 본문 입력 - 티스토리 에디터 (iframe 또는 contenteditable)
       let bodyInserted = false;
 
-      // 방법 1: CodeMirror / contenteditable 기반 에디터
-      const editorArea = await page.$(
-        "#tinymce, .mce-content-body, #content, .editor-content",
-      );
-      if (editorArea) {
-        await editorArea.click();
-        await editorArea.evaluate((el, html) => {
-          (el as HTMLElement).innerHTML = html;
-        }, body);
-        bodyInserted = true;
+      // 방법 1: iframe 기반 에디터 (가장 일반적인 티스토리 에디터 구조)
+      if (!bodyInserted) {
+        const iframeSelectors = [
+          "iframe#editor-tistory",
+          "iframe.editor",
+          "#cke_contents iframe",
+          ".editor-content iframe",
+          "iframe",
+        ];
+        for (const sel of iframeSelectors) {
+          const iframe = await page.$(sel);
+          if (iframe) {
+            const frame = await iframe.contentFrame();
+            if (frame) {
+              const frameBody = await frame.$("body");
+              if (frameBody) {
+                const isEditable = await frameBody.evaluate(
+                  (el) => el.contentEditable === "true" || el.isContentEditable,
+                );
+                if (isEditable || sel !== "iframe") {
+                  await frameBody.click();
+                  await frame.evaluate((html) => {
+                    document.body.innerHTML = html;
+                  }, body);
+                  bodyInserted = true;
+                  break;
+                }
+              }
+            }
+          }
+        }
       }
 
-      // 방법 2: iframe 기반 에디터
+      // 방법 2: contenteditable 기반 에디터 (iframe 없이 직접 DOM)
       if (!bodyInserted) {
-        const iframe = await page.$("iframe#editor-tistory, iframe.editor");
-        if (iframe) {
-          const frame = await iframe.contentFrame();
-          if (frame) {
-            const frameBody = await frame.$("body");
-            if (frameBody) {
-              await frameBody.click();
-              await frame.evaluate((html) => {
-                document.body.innerHTML = html;
-              }, body);
-              bodyInserted = true;
-            }
+        const editableSelectors = [
+          '#tinymce',
+          '.mce-content-body',
+          '#content',
+          '.editor-content',
+          '.ProseMirror',
+          '[contenteditable="true"]',
+        ];
+        for (const sel of editableSelectors) {
+          const editorArea = await page.$(sel);
+          if (editorArea) {
+            await editorArea.click();
+            await editorArea.evaluate((el, html) => {
+              (el as HTMLElement).innerHTML = html;
+            }, body);
+            bodyInserted = true;
+            break;
           }
         }
       }
 
       // 방법 3: 텍스트에어리어 (HTML 모드)
       if (!bodyInserted) {
-        const textarea = await page.$(
-          "textarea#content, textarea.editor-textarea",
-        );
-        if (textarea) {
-          await textarea.fill(body);
-          bodyInserted = true;
+        const textareaSelectors = [
+          "textarea#content",
+          "textarea.editor-textarea",
+          'textarea[name="content"]',
+          "textarea",
+        ];
+        for (const sel of textareaSelectors) {
+          const textarea = await page.$(sel);
+          if (textarea) {
+            await textarea.fill(body);
+            bodyInserted = true;
+            break;
+          }
         }
       }
 
       if (!bodyInserted) {
+        // 디버깅을 위해 현재 페이지 URL과 주요 요소 정보를 포함
+        const debugInfo = await page.evaluate(() => {
+          const iframes = document.querySelectorAll("iframe");
+          const editables = document.querySelectorAll('[contenteditable="true"]');
+          const textareas = document.querySelectorAll("textarea");
+          return `URL: ${location.href}, iframes: ${iframes.length}, contenteditable: ${editables.length}, textareas: ${textareas.length}`;
+        });
         return {
           success: false,
-          error: "티스토리 본문 에디터를 찾을 수 없습니다.",
+          error: `티스토리 본문 에디터를 찾을 수 없습니다. (${debugInfo})`,
         };
       }
 
       await page.waitForTimeout(1000);
 
       // 6. 발행 버튼 클릭
-      // 먼저 "완료" 또는 "발행" 버튼 찾기
-      const publishBtn = await page.$(
-        '#publish-layer-btn, button.btn_publish, .btn_save, button[data-name="publish"]',
-      );
+      const publishSelectors = [
+        '#publish-layer-btn',
+        'button.btn_publish',
+        '.btn_save',
+        'button[data-name="publish"]',
+        'button.publish',
+      ];
+      let publishBtn = null;
+      for (const sel of publishSelectors) {
+        publishBtn = await page.$(sel);
+        if (publishBtn) break;
+      }
+      // 텍스트 기반 폴백
+      if (!publishBtn) {
+        publishBtn = await page.$('xpath=//button[contains(text(), "발행") or contains(text(), "완료") or contains(text(), "저장")]');
+      }
       if (publishBtn) {
         await publishBtn.click();
         await page.waitForTimeout(2000);
 
         // 발행 확인 레이어가 뜨는 경우 (공개 발행 확인 버튼)
-        const confirmBtn = await page.$(
-          "#publish-btn, .btn_ok, button.btn_default",
-        );
-        if (confirmBtn) {
-          await confirmBtn.click();
-          await page.waitForTimeout(5000);
+        const confirmSelectors = [
+          "#publish-btn",
+          ".btn_ok",
+          "button.btn_default",
+        ];
+        for (const sel of confirmSelectors) {
+          const confirmBtn = await page.$(sel);
+          if (confirmBtn) {
+            await confirmBtn.click();
+            await page.waitForTimeout(5000);
+            break;
+          }
         }
       } else {
         return {

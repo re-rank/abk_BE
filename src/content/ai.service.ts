@@ -36,19 +36,33 @@ export class AiService {
     // 1. claude-3-haiku-20240307 (가장 저렴하고 빠름)
     // 2. claude-3-sonnet-20240229
     // 3. claude-3-opus-20240229 (가장 강력)
-    const message = await this.anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 2000,
-      messages: [
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-    });
+    let message;
+    try {
+      message = await this.anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2000,
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+      });
+    } catch (err: any) {
+      if (err?.status === 400 && err?.message?.includes('credit balance')) {
+        throw new Error('AI API 크레딧이 부족합니다. Anthropic 콘솔에서 크레딧을 충전해주세요.');
+      }
+      if (err?.status === 401) {
+        throw new Error('AI API 키가 유효하지 않습니다. 관리자에게 문의해주세요.');
+      }
+      if (err?.status === 429) {
+        throw new Error('AI API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.');
+      }
+      throw new Error(`AI 콘텐츠 생성 실패: ${err?.message || '알 수 없는 오류'}`);
+    }
 
-    const responseText = message.content[0].type === 'text' 
-      ? message.content[0].text 
+    const responseText = message.content[0].type === 'text'
+      ? message.content[0].text
       : '';
 
     return this.parseResponse(responseText, brandName, mainKeyword, targetUrl);
